@@ -1,7 +1,20 @@
-import ctypes, json, os, shutil, sys, threading
+import ctypes, importlib.util, json, os, shutil, sys, threading
 from datetime import datetime
 from tkinter import Tk, Toplevel, messagebox, ttk
-import lector_otras_cedulas as core
+
+
+def _load_runtime_module(module_name, filename):
+    root = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(root, "assets", "runtime", filename)
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"No se pudo cargar el módulo interno: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+core = _load_runtime_module("dms_lector_core", "lector_core.py")
 
 VERSION = "3.8"
 HOTKEY = "Ctrl+Alt+C"

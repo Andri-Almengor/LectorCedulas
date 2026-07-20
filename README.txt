@@ -6,7 +6,7 @@ Estructura de configuraciones
 La carpeta configs ahora se organiza así:
 
 - configs/formularios/: configuraciones seleccionables para autocompletar formularios.
-- configs/sistema/: configuración activa, favoritos y último puerto COM.
+- configs/sistema/: configuración activa, favoritas y último puerto COM.
 - configs/formatos/: catálogo de formatos de cédulas y documentos reconocidos.
 
 Al iniciar el lector o el administrador, los archivos de versiones anteriores se migran automáticamente a su carpeta correspondiente sin eliminar configuraciones existentes.
@@ -20,11 +20,10 @@ Archivos principales
 --------------------
 - dashboard.py: administra clientes, licencias e instaladores.
 - template/main.py: inicio, migración, selector y atajo global.
-- template/lector_otras_cedulas.py: núcleo de lectura y parsers del lector.
 - template/crear_configuracion.py: administrador de formularios y favoritos.
-- template/capturar_nuevo_formato.py: núcleo del editor de configuraciones usado al compilar.
-- tools/capturar_nuevo_formato.py: herramienta RAW/HEX/Base64 para nuevos formatos.
-- tools/lector_otras_cedulas.py: capturador auxiliar de documentos no soportados.
+- template/lector_otras_cedulas.py: capturador auxiliar de documentos no soportados.
+- template/capturar_nuevo_formato.py: herramienta RAW/HEX/Base64 para nuevos formatos.
+- template/assets/runtime/: módulos internos conservados por el instalador y las actualizaciones.
 - template/configs/formatos/formatos_cedulas.json: catálogo actual de formatos.
 
 Requisitos
@@ -37,5 +36,5 @@ Requisitos
 
 Notas
 -----
-- Las actualizaciones conservan licencia y toda la carpeta configs.
+- Las actualizaciones conservan la licencia y toda la carpeta configs.
 - Las lecturas no reconocidas no se escriben en pantalla y se guardan para diagnóstico.

@@ -1,7 +1,20 @@
-import json, os, shutil, sys, tkinter as tk
+import importlib.util, json, os, shutil, sys, tkinter as tk
 from datetime import datetime
 from tkinter import messagebox, ttk
-import capturar_nuevo_formato as legacy
+
+
+def _load_runtime_module(module_name, filename):
+    root = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(root, "assets", "runtime", filename)
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"No se pudo cargar el módulo interno: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+legacy = _load_runtime_module("dms_editor_core", "editor_core.py")
 
 HOTKEY="Ctrl+Alt+C"
 ROOT=os.path.dirname(sys.executable) if getattr(sys,"frozen",False) else os.path.dirname(os.path.abspath(__file__))
