@@ -1,0 +1,9 @@
+{
+  "nombre": "Formulario Visitantes",
+  "campos": [
+    {"dato": "Primer Apellido", "tabuladores": 0},
+    {"dato": "Nombre", "tabuladores": 0},
+    {"dato": "Cedula", "tabuladores": 1},
+    {"dato": "Fecha de Nacimiento", "tabuladores": 2}
+  ]
+}

@@ -1,30 +1,40 @@
-DMS Lector de Cédulas - Paquete Final Corregido
-===============================================
+DMS Lector de Cédulas - Paquete Final
+=====================================
 
-Contenido principal:
-- dashboard.py: dashboard para administrar clientes/licencias y generar instaladores Setup.exe.
-- template/: archivos base del lector que se empacan dentro del instalador.
-- template/main.py: lector actualizado con cédula XOR, menores/CSV, QR TSE online, CI corto y mdoc ISO18013.
-- template/configs/formatos_cedulas.json: formatos actuales.
-- template/assets/DMS_icono_circulo_i.ico: logo usado en EXE, ventanas, accesos directos e instalador cuando Windows/Inno lo permite.
-- installer/generar_dashboard_exe.bat: crea dist_dashboard/DashboardInstaladoresDMS.exe.
-- EJECUTAR_DASHBOARD.bat: abre el dashboard usando Python, útil si aún no has generado el EXE.
+Estructura de configuraciones
+-----------------------------
+La carpeta configs ahora se organiza así:
 
-Correcciones incluidas:
-- Corregido el error de Tkinter: NameError con la variable e en callbacks de errores.
-- El dashboard ya no se cae cuando Inno Setup falla aplicando el icono al Setup.exe.
-- Si Inno muestra EndUpdateResource failed (110), reintenta automáticamente sin SetupIconFile.
-- La app instalada y los accesos directos siguen usando el logo DMS aunque el Setup.exe no pueda recibir icono.
-- El generador del EXE del dashboard también reintenta sin icono si PyInstaller falla por el recurso .ico.
+- configs/formularios/: configuraciones seleccionables para autocompletar formularios.
+- configs/sistema/: configuración activa, favoritas y último puerto COM.
+- configs/formatos/: catálogo de formatos de cédulas y documentos reconocidos.
 
-Requisitos para crear instaladores:
-1. Python 3.10+ instalado.
-2. Inno Setup 6 instalado.
-3. Ejecutar installer/generar_dashboard_exe.bat para crear el EXE del dashboard.
+Al iniciar el lector o el administrador, los archivos de versiones anteriores se migran automáticamente a su carpeta correspondiente sin eliminar configuraciones existentes.
+
+Cambio rápido
+-------------
+Desde crear_configuracion.exe se seleccionan dos configuraciones favoritas.
+Mientras el lector esté ejecutándose, Ctrl+Alt+C alterna inmediatamente entre ambas. La misma acción está disponible desde el icono de bandeja.
+
+Archivos principales
+--------------------
+- dashboard.py: administra clientes, licencias e instaladores.
+- template/main.py: inicio, migración, selector y atajo global.
+- template/crear_configuracion.py: administrador de formularios y favoritos.
+- template/lector_otras_cedulas.py: capturador auxiliar de documentos no soportados.
+- template/capturar_nuevo_formato.py: herramienta RAW/HEX/Base64 para nuevos formatos.
+- template/assets/runtime/: módulos internos conservados por el instalador y las actualizaciones.
+- template/configs/formatos/formatos_cedulas.json: catálogo actual de formatos.
+
+Requisitos
+----------
+1. Python 3.10 o superior.
+2. Inno Setup 6.
+3. Ejecutar installer/generar_dashboard_exe.bat.
 4. Abrir dist_dashboard/DashboardInstaladoresDMS.exe.
-5. Crear cliente/licencia y presionar Generar instalador.
+5. Crear cliente/licencia y generar el instalador.
 
-Notas:
-- Si Windows Defender/antivirus bloquea el Setup.exe, agrega la carpeta del paquete a exclusiones o genera en una carpeta simple como C:\DMS_Builds.
-- El lector conserva último COM, bandeja de Windows, cambio de configuración y validaciones anti-basura.
-- El formato mdoc ISO18013 se reconoce y no escribe basura; si no hay datos visibles, usa DESCONOCIDO.
+Notas
+-----
+- Las actualizaciones conservan la licencia y toda la carpeta configs.
+- Las lecturas no reconocidas no se escriben en pantalla y se guardan para diagnóstico.
