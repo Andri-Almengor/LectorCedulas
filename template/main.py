@@ -3,7 +3,7 @@ from datetime import datetime
 from tkinter import Tk, Toplevel, messagebox, ttk
 from assets.runtime import lector_core as core
 
-VERSION = "3.8"
+VERSION = "3.8.1"
 HOTKEY = "Ctrl+Alt+C"
 ROOT = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 os.chdir(ROOT)
@@ -146,6 +146,9 @@ class ConfigSelector:
 
 def patch_core():
     core.VERSION=VERSION; core.CONFIG_DIR=FORMS; core.CONFIG_ACTUAL=ACTIVE; core.CONFIG_DEFECTO=DEFAULT_FORM; core.LAST_COM_FILE=LAST_COM
+    # El pegado Unicode ya conserva Ñ y tildes. Desactivar los campos críticos evita
+    # que Ctrl+A vuelva a seleccionar y reemplace el apellido recién escrito.
+    core.CRITICAL_FIELDS = set()
     core.SelectorConfiguracionGUI=ConfigSelector; core.inicializar_configuracion=initialize
     core.cargar_configuracion_activa=load_active; core.cargar_ultimo_com=load_last_com; core.guardar_ultimo_com=save_last_com
 
