@@ -1,0 +1,352 @@
+{
+  "version": 6,
+  "descripcion": "Formatos de lectura para documentos/cédulas. Para agregar nuevos tipos, use capturar_nuevo_formato.py y agregue aquí el nuevo formato validado.",
+  "formatos": [
+    {
+      "id": "MENOR_CSV",
+      "enabled": true,
+      "tipo": "csv",
+      "descripcion": "Cédula de menor en texto CSV plano.",
+      "inicio_regex": "\"(\\d{8,12})\",",
+      "delimiter": ",",
+      "quotechar": "\"",
+      "min_fields": 13,
+      "remove_leading_zero": [
+        "Cedula"
+      ],
+      "date_format": "ddmmyyyy",
+      "fields": {
+        "Cedula": 0,
+        "Fecha de Emision": 1,
+        "Fecha de Nacimiento": 2,
+        "Padre": 3,
+        "Madre": 4,
+        "Primer Apellido": 5,
+        "Segundo Apellido": 6,
+        "Nombre": 7,
+        "Sexo": 9,
+        "Lugar de Nacimiento": 10,
+        "Lugar de Residencia": 11
+      },
+      "sexo_map": {
+        "M": "MASCULINO",
+        "F": "FEMENINO"
+      },
+      "required": [
+        "Cedula",
+        "Nombre",
+        "Primer Apellido"
+      ]
+    },
+    {
+      "id": "ADULTO_XOR_CLASICO",
+      "enabled": true,
+      "tipo": "xor_fixed_offsets",
+      "descripcion": "Cédula adulta clásica codificada con XOR y posiciones fijas.",
+      "min_len": 108,
+      "xor_key": [
+        39,
+        48,
+        4,
+        160,
+        0,
+        15,
+        147,
+        18,
+        160,
+        209,
+        51,
+        224,
+        3,
+        208,
+        0,
+        223,
+        0
+      ],
+      "encoding_order": [
+        "utf-8",
+        "latin-1",
+        "cp1252"
+      ],
+      "date_format": "yyyymmdd",
+      "fields": {
+        "Cedula": {
+          "start": 0,
+          "length": 9
+        },
+        "Primer Apellido": {
+          "start": 9,
+          "length": 26
+        },
+        "Segundo Apellido": {
+          "start": 35,
+          "length": 26
+        },
+        "Nombre": {
+          "start": 61,
+          "length": 30
+        },
+        "Sexo": {
+          "start": 91,
+          "length": 1
+        },
+        "Fecha de Nacimiento": {
+          "start": 92,
+          "length": 8
+        },
+        "Fecha de Expiracion": {
+          "start": 100,
+          "length": 8
+        }
+      },
+      "sexo_map": {
+        "M": "MASCULINO",
+        "F": "FEMENINO",
+        "1": "MASCULINO",
+        "2": "FEMENINO"
+      },
+      "required": [
+        "Cedula",
+        "Nombre",
+        "Primer Apellido"
+      ],
+      "validators": {
+        "Cedula": {
+          "regex": "^[0-9]{9,12}$"
+        },
+        "Nombre": {
+          "min_length": 2
+        },
+        "Primer Apellido": {
+          "min_length": 2
+        }
+      }
+    },
+    {
+      "id": "LICENCIA_CONDUCIR_BINARIA_V1",
+      "enabled": false,
+      "tipo": "binary_unknown",
+      "descripcion": "Captura binaria detectada de licencia/documento no soportado aún. Se registra para análisis y se evita escribir basura.",
+      "min_len": 650,
+      "max_len": 750,
+      "signature_hex_prefix": "16013d93323fa220",
+      "contains_bytes": [
+        "d133e003d000d",
+        "27",
+        "a0",
+        "df00"
+      ],
+      "block_write": true,
+      "save_raw_for_analysis": true,
+      "encoding_order": [
+        "utf-8",
+        "latin-1",
+        "cp1252"
+      ],
+      "required": [
+        "signature_match"
+      ],
+      "notes": {
+        "status": "pendiente_ingenieria_inversa",
+        "reason": "La muestra no contiene patrones legibles confiables todavía. El formato parece binario/encriptado diferente al XOR clásico.",
+        "sample_length": 702,
+        "recommended_action": "Capturar múltiples muestras del mismo documento para comparar offsets y patrones repetidos."
+      }
+    },
+    {
+      "id": "CEDULA_CSV_EXTENDIDA_V2",
+      "enabled": true,
+      "tipo": "csv",
+      "descripcion": "Formato CSV extendido detectado en cédulas nuevas/adultas con bloque binario adjunto.",
+      "inicio_regex": "\"(\\d{8,12})\",\\d{8},\\d{8},",
+      "delimiter": ",",
+      "quotechar": "\"",
+      "min_fields": 13,
+      "trim_binary_after_ascii": true,
+      "stop_at_binary_threshold": 190,
+      "remove_leading_zero": [
+        "Cedula"
+      ],
+      "date_format": "ddmmyyyy",
+      "fields": {
+        "Cedula": 0,
+        "Fecha de Emision": 1,
+        "Fecha de Nacimiento": 2,
+        "Padre": 3,
+        "Madre": 4,
+        "Primer Apellido": 5,
+        "Segundo Apellido": 6,
+        "Nombre": 7,
+        "Sexo": 9,
+        "Lugar de Nacimiento": 10,
+        "Lugar de Residencia": 11
+      },
+      "sexo_map": {
+        "M": "MASCULINO",
+        "F": "FEMENINO",
+        "1": "MASCULINO",
+        "2": "FEMENINO",
+        "D": "DESCONOCIDO",
+        "I": "DESCONOCIDO"
+      },
+      "required": [
+        "Cedula",
+        "Nombre",
+        "Primer Apellido"
+      ],
+      "validators": {
+        "Cedula": {
+          "regex": "^[0-9]{9,12}$"
+        },
+        "Fecha de Nacimiento": {
+          "regex": "^[0-9]{8}$"
+        },
+        "Nombre": {
+          "min_length": 2
+        },
+        "Primer Apellido": {
+          "min_length": 2
+        }
+      },
+      "notes": {
+        "detected_pattern": "CSV legible seguido de bloque binario/padding",
+        "ascii_region_end_approx": 190,
+        "binary_tail_detected": true,
+        "recommendation": "El parser debe ignorar todo byte posterior al primer bloque binario no ASCII consecutivo."
+      }
+    },
+    {
+      "id": "CODIGO_CORTO_CI",
+      "enabled": true,
+      "tipo": "short_code",
+      "descripcion": "Formato corto detectado en algunos lectores/configuraciones que envían únicamente un identificador resumido.",
+      "inicio_regex": "^CI\\d{9,12}[A-Z0-9]{1,4}$",
+      "min_len": 10,
+      "max_len": 25,
+      "strip_prefix": "CI",
+      "strip_suffix_regex": "[A-Z]{1}\\d{1}$",
+      "fields": {
+        "Cedula": {
+          "regex_extract": "CI(\\d{9,12})"
+        }
+      },
+      "default_values": {
+        "Nombre": "DESCONOCIDO",
+        "Primer Apellido": "DESCONOCIDO",
+        "Segundo Apellido": "",
+        "Apellidos": "DESCONOCIDO",
+        "Sexo": "DESCONOCIDO",
+        "Fecha de Nacimiento": "",
+        "Fecha de Expiracion": "",
+        "Fecha de Expiración": "",
+        "Fecha de Emision": ""
+      },
+      "required": [
+        "Cedula"
+      ],
+      "validators": {
+        "Cedula": {
+          "regex": "^\\d{9,12}$"
+        }
+      },
+      "notes": {
+        "sample_detected": "CI119320121B1",
+        "behavior": "Permite reconocer lecturas cortas sin provocar errores ni escribir basura.",
+        "important": "Solo se obtiene la cédula; el resto de campos quedan como DESCONOCIDO."
+      }
+    },
+    {
+      "id": "TSE_QR_URL",
+      "enabled": true,
+      "tipo": "url_querystring",
+      "descripcion": "Formato QR URL oficial del TSE que contiene la cédula dentro del querystring.",
+      "inicio_regex": "^https:\\/\\/www\\.consulta\\.tse\\.go\\.cr\\/consultacedula\\/Cedula\\?",
+      "min_len": 80,
+      "max_len": 250,
+      "url_contains": [
+        "consulta.tse.go.cr",
+        "cedula="
+      ],
+      "fields": {
+        "Cedula": {
+          "query_param": "cedula"
+        },
+        "Fecha de Emision": {
+          "query_param": "sol"
+        }
+      },
+      "default_values": {
+        "Nombre": "DESCONOCIDO",
+        "Primer Apellido": "DESCONOCIDO",
+        "Segundo Apellido": "",
+        "Apellidos": "DESCONOCIDO",
+        "Sexo": "DESCONOCIDO",
+        "Fecha de Nacimiento": "",
+        "Fecha de Expiracion": "",
+        "Fecha de Expiración": "",
+        "Lugar de Nacimiento": "",
+        "Lugar de Residencia": "",
+        "Padre": "",
+        "Madre": ""
+      },
+      "required": [
+        "Cedula"
+      ],
+      "validators": {
+        "Cedula": {
+          "regex": "^\\d{9,12}$"
+        }
+      },
+      "notes": {
+        "sample_detected": "https://www.consulta.tse.go.cr/consultacedula/Cedula?cedula=112350855&sol=202611101736&sign=MLqLKQQbxVD3YNYA",
+        "behavior": "Extrae únicamente la cédula y parámetros visibles del URL QR oficial del TSE.",
+        "important": "El QR no contiene nombre ni datos personales; solo parámetros de consulta."
+      }
+    },
+    {
+      "id": "TSE_MDOC_ISO18013",
+      "enabled": true,
+      "tipo": "mdoc_url",
+      "descripcion": "Formato mdoc/ISO18013 de documentos móviles del TSE Costa Rica.",
+      "inicio_regex": "^mdoc:",
+      "min_len": 100,
+      "max_len": 1200,
+      "contains_text": [
+        "servicioidc.tse.go.cr",
+        "Iso18013",
+        "CostaRica.Mdl.Api"
+      ],
+      "extract_regex": "(https:\\/\\/[^\\s]+)",
+      "fields": {
+        "DocumentoURL": {
+          "regex_extract": "(https:\\/\\/[^\\s]+)"
+        }
+      },
+      "default_values": {
+        "Cedula": "DESCONOCIDO",
+        "Nombre": "DESCONOCIDO",
+        "Primer Apellido": "DESCONOCIDO",
+        "Segundo Apellido": "",
+        "Apellidos": "DESCONOCIDO",
+        "Sexo": "DESCONOCIDO",
+        "Fecha de Nacimiento": "",
+        "Fecha de Expiracion": "",
+        "Fecha de Expiración": "",
+        "Fecha de Emision": "",
+        "Lugar de Nacimiento": "",
+        "Lugar de Residencia": "",
+        "Padre": "",
+        "Madre": ""
+      },
+      "required": [
+        "DocumentoURL"
+      ],
+      "notes": {
+        "sample_detected": "mdoc:pAKCgwEB...",
+        "document_type": "ISO18013 mobile document",
+        "behavior": "Extrae URL/API del documento móvil y evita que el sistema lo trate como basura.",
+        "important": "Este formato no contiene datos personales visibles directamente; los campos no disponibles quedan como DESCONOCIDO."
+      }
+    }
+  ]
+}
