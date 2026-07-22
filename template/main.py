@@ -8,7 +8,7 @@ from assets.runtime import dms_session_runtime as session
 from assets.runtime import lector_core as core
 
 
-VERSION = "3.9.0"
+VERSION = "3.9.1"
 HOTKEY = "Ctrl+Alt+C"
 
 
@@ -48,10 +48,10 @@ def patch_core():
     # El pegado Unicode conserva Ñ y tildes sin volver a seleccionar el campo.
     core.CRITICAL_FIELDS = set()
 
-    # Ritmo conservador para no saturar aplicaciones de formularios lentas.
-    core.pyautogui.PAUSE = 0.035
-    core.TAB_PAUSE = 0.06
-    core.BETWEEN_FIELDS = 0.14
+    # Ritmo deliberadamente conservador para formularios web, .NET y remotos.
+    core.pyautogui.PAUSE = 0.055
+    core.TAB_PAUSE = 0.10
+    core.BETWEEN_FIELDS = 0.24
 
     core.SelectorConfiguracionGUI = config.ConfigSelector
     core.inicializar_configuracion = config.initialize
