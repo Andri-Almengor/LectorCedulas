@@ -1,0 +1,29 @@
+name: QA hardening
+
+on:
+  pull_request:
+  push:
+    branches: [agent/qa-hardening-lector-cedulas]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m compileall -q template tools dashboard_secure.py
+      - run: python -m pytest -q
+      - run: python -m ruff check template tools tests dashboard_secure.py
