@@ -8,7 +8,7 @@ from assets.runtime import dms_session_runtime as session
 from assets.runtime import lector_core as core
 
 
-VERSION = "3.9.1"
+VERSION = "3.9.2"
 HOTKEY = "Ctrl+Alt+C"
 
 
