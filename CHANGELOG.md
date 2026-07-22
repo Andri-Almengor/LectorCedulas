@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.0-qa2 — 2026-07-22
+
+### Licencias y dashboard
+
+- El dashboard principal usa directamente el pipeline seguro; se eliminó el wrapper duplicado.
+- Crear un cliente genera inmediatamente `clientes/<CLIENT_ID>/licencia.key` firmado y su clave pública.
+- Renovar o extender reemplaza atómicamente la licencia firmada.
+- Se agregó exportación directa para copiar `licencia.key` y `assets/license_public_key.pem` a una instalación.
+- Dashboard, instalador y renovación usan una única raíz Ed25519.
+- Se eliminaron emisores y capturadores antiguos duplicados que ya no formaban parte del runtime.
+
 ## 4.0.0-qa1 — 2026-07-22
 
 ### Seguridad y confiabilidad

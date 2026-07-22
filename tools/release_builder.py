@@ -12,13 +12,19 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "template"
 CLIENTS = ROOT / "clientes"
+
 if str(TEMPLATE) not in sys.path:
     sys.path.insert(0, str(TEMPLATE))
 
-from assets.runtime.hardened.atomic_io import write_json_atomic
-from assets.runtime.hardened.license_service import generate_keypair, issue_license, parse_utc
-from assets.runtime.hardened.update_manifest import build_file_entries, sign_manifest
-from assets.runtime.hardened.version import PRODUCT_ID, PRODUCT_NAME, UPDATE_MANIFEST_SCHEMA_VERSION, VERSION
+from assets.runtime.hardened.atomic_io import write_json_atomic  # noqa: E402
+from assets.runtime.hardened.license_service import generate_keypair, issue_license, parse_utc  # noqa: E402
+from assets.runtime.hardened.update_manifest import build_file_entries, sign_manifest  # noqa: E402
+from assets.runtime.hardened.version import (  # noqa: E402
+    PRODUCT_ID,
+    PRODUCT_NAME,
+    UPDATE_MANIFEST_SCHEMA_VERSION,
+    VERSION,
+)
 
 
 class BuildError(RuntimeError):
@@ -42,7 +48,15 @@ def _ensure_keys(name: str) -> tuple[Path, Path]:
 
 
 def _run(command: list[str], *, cwd: Path, log: Path) -> subprocess.CompletedProcess:
-    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("a", encoding="utf-8") as handle:
         handle.write("$ " + subprocess.list2cmdline(command) + "\n")
@@ -77,10 +91,18 @@ def _iscc() -> str:
 
 def _build_exe(work: Path, script: str, name: str, log: Path, *, console: bool = False) -> Path:
     command = [
-        _pyinstaller(), "--noconfirm", "--clean", "--onefile", "--name", name,
-        "--paths", str(work),
-        "--hidden-import", "assets.runtime.hardened.app_runtime",
-        "--hidden-import", "assets.runtime.hardened.windows_control",
+        _pyinstaller(),
+        "--noconfirm",
+        "--clean",
+        "--onefile",
+        "--name",
+        name,
+        "--paths",
+        str(work),
+        "--hidden-import",
+        "assets.runtime.hardened.app_runtime",
+        "--hidden-import",
+        "assets.runtime.hardened.windows_control",
     ]
     if not console:
         command.append("--noconsole")
@@ -107,22 +129,70 @@ def _client_claims(client: dict[str, Any]) -> tuple[str, str, datetime, datetime
     expires_raw = license_data.get("expires_at_utc")
     if not client_id or not expires_raw:
         raise BuildError("Cliente/licencia incompleto")
+    if not all(char.isalnum() or char in "-_" for char in client_id) or len(client_id) > 64:
+        raise BuildError("client_id contiene caracteres no permitidos")
     issued = parse_utc(issued_raw, "issued_at_utc") if issued_raw else datetime.now(timezone.utc)
     expires = parse_utc(expires_raw, "expires_at_utc")
+    if expires <= issued:
+        raise BuildError("La expiración debe ser posterior a la emisión")
     return client_id, license_id, issued, expires
+
+
+def _issue_client_envelope(client: dict[str, Any]) -> tuple[dict[str, Any], Path]:
+    license_private, license_public = _ensure_keys("license")
+    client_id, license_id, issued, expires = _client_claims(client)
+    envelope = issue_license(
+        private_key_path=license_private,
+        client_id=client_id,
+        license_id=license_id,
+        issued_at_utc=issued,
+        expires_at_utc=expires,
+    )
+    return envelope, license_public
+
+
+def _copy_public_key_atomic(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + ".tmp")
+    shutil.copy2(source, temporary)
+    os.replace(temporary, destination)
+
+
+def export_client_license_bundle(
+    client: dict[str, Any],
+    *,
+    destination: str | os.PathLike[str] | None = None,
+) -> dict[str, str]:
+    """Emite la licencia firmada y su clave pública sin compilar el instalador.
+
+    Sin ``destination`` se guarda en ``clientes/<CLIENT_ID>``. Cuando se elige
+    una carpeta externa, el contenido queda listo para copiar sobre la carpeta
+    instalada: ``licencia.key`` y ``assets/license_public_key.pem``.
+    """
+
+    client_id, _, _, _ = _client_claims(client)
+    bundle_root = Path(destination) if destination is not None else CLIENTS / client_id
+    bundle_root.mkdir(parents=True, exist_ok=True)
+    envelope, public_key = _issue_client_envelope(client)
+    license_path = bundle_root / "licencia.key"
+    public_key_path = bundle_root / "assets" / "license_public_key.pem"
+    write_json_atomic(license_path, envelope, backup=True)
+    _copy_public_key_atomic(public_key, public_key_path)
+    return {
+        "license_path": str(license_path.resolve()),
+        "public_key_path": str(public_key_path.resolve()),
+    }
 
 
 def _prepare_work(client: dict[str, Any], build_root: Path) -> Path:
     work = build_root / "work"
     _copy_template(work)
-    license_private, license_public = _ensure_keys("license")
+    envelope, license_public = _issue_client_envelope(client)
     _, update_public = _ensure_keys("update")
     assets = work / "assets"
     assets.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(license_public, assets / "license_public_key.pem")
-    shutil.copy2(update_public, assets / "update_public_key.pem")
-    client_id, license_id, issued, expires = _client_claims(client)
-    envelope = issue_license(private_key_path=license_private, client_id=client_id, license_id=license_id, issued_at_utc=issued, expires_at_utc=expires)
+    _copy_public_key_atomic(license_public, assets / "license_public_key.pem")
+    _copy_public_key_atomic(update_public, assets / "update_public_key.pem")
     write_json_atomic(work / "licencia.key", envelope, backup=False)
     return work
 
@@ -163,7 +233,9 @@ Name: "{{group}}\\Configurar lector"; Filename: "{{app}}\\crear_configuracion.ex
 
 [Run]
 Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "Ejecutar {{#MyAppName}}"; Flags: nowait postinstall skipifsilent
-''', encoding="utf-8")
+''',
+        encoding="utf-8",
+    )
     return script
 
 
@@ -197,6 +269,7 @@ def make_installer_zip(client: dict[str, Any], out_dir: str) -> str:
     destination = Path(out_dir)
     destination.mkdir(parents=True, exist_ok=True)
     client_id = str(client.get("client_id") or "CLIENTE")
+    export_client_license_bundle(client)
     build_root = CLIENTS / "_build" / f"{client_id}_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}"
     build_root.mkdir(parents=True, exist_ok=True)
     log = build_root / "build.log"
@@ -207,6 +280,7 @@ def make_installer_zip(client: dict[str, Any], out_dir: str) -> str:
     shutil.copytree(work, updater_work, dirs_exist_ok=True)
     shutil.copy2(ROOT / "tools" / "updater.py", updater_work / "updater.py")
     updater_exe = _build_exe(updater_work, "updater.py", "DMSUpdater", log, console=True)
+
     app_dir = build_root / "app"
     app_dir.mkdir()
     shutil.copy2(main_exe, app_dir / "LectorCedulasDMS.exe")
@@ -229,7 +303,14 @@ def make_update_zip(version: str, out_dir: str) -> str:
     build_root = CLIENTS / "_build" / f"UPDATE_{VERSION}_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}"
     build_root.mkdir(parents=True, exist_ok=True)
     log = build_root / "build.log"
-    dummy = {"client_id": "UPDATE-BUILD", "license": {"license_id": "LIC-UPDATE-BUILD", "issued_at_utc": "2026-01-01T00:00:00Z", "expires_at_utc": "2099-01-01T00:00:00Z"}}
+    dummy = {
+        "client_id": "UPDATE-BUILD",
+        "license": {
+            "license_id": "LIC-UPDATE-BUILD",
+            "issued_at_utc": "2026-01-01T00:00:00Z",
+            "expires_at_utc": "2099-01-01T00:00:00Z",
+        },
+    }
     work = _prepare_work(dummy, build_root)
     main_exe = _build_exe(work, "main.py", "LectorCedulasDMS", log)
     config_exe = _build_exe(work, "crear_configuracion.py", "crear_configuracion", log)
@@ -237,6 +318,7 @@ def make_update_zip(version: str, out_dir: str) -> str:
     shutil.copytree(work, updater_work, dirs_exist_ok=True)
     shutil.copy2(ROOT / "tools" / "updater.py", updater_work / "updater.py")
     updater_exe = _build_exe(updater_work, "updater.py", "DMSUpdater", log, console=True)
+
     package = build_root / "package"
     payload = package / "payload"
     payload.mkdir(parents=True)
