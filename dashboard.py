@@ -22,9 +22,13 @@ try:
 except Exception:  # pragma: no cover - dependencia validada en requirements
     relativedelta = None
 
-from assets.runtime.hardened.atomic_io import write_json_atomic
-from assets.runtime.hardened.version import VERSION
-from tools.release_builder import export_client_license_bundle, make_installer_zip, make_update_zip
+from assets.runtime.hardened.atomic_io import write_json_atomic  # noqa: E402
+from assets.runtime.hardened.version import VERSION  # noqa: E402
+from tools.release_builder import (  # noqa: E402
+    export_client_license_bundle,
+    make_installer_zip,
+    make_update_zip,
+)
 
 APP_NAME = "DMS - Lector de Cédulas | Dashboard"
 APP_VERSION = VERSION
@@ -529,7 +533,14 @@ class Dashboard(tk.Tk):
             try:
                 result = task()
             except Exception as exc:
-                self.after(0, lambda: (window.destroy(), messagebox.showerror(title, str(exc))))
+                error_message = str(exc)
+                self.after(
+                    0,
+                    lambda message=error_message: (
+                        window.destroy(),
+                        messagebox.showerror(title, message),
+                    ),
+                )
                 return
             self.after(0, lambda: (window.destroy(), done(result)))
 
