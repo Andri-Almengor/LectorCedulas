@@ -16,10 +16,15 @@ CLIENTS = ROOT / "clientes"
 if str(TEMPLATE) not in sys.path:
     sys.path.insert(0, str(TEMPLATE))
 
-from assets.runtime.hardened.atomic_io import write_json_atomic
-from assets.runtime.hardened.license_service import generate_keypair, issue_license, parse_utc
-from assets.runtime.hardened.update_manifest import build_file_entries, sign_manifest
-from assets.runtime.hardened.version import PRODUCT_ID, PRODUCT_NAME, UPDATE_MANIFEST_SCHEMA_VERSION, VERSION
+from assets.runtime.hardened.atomic_io import write_json_atomic  # noqa: E402
+from assets.runtime.hardened.license_service import generate_keypair, issue_license, parse_utc  # noqa: E402
+from assets.runtime.hardened.update_manifest import build_file_entries, sign_manifest  # noqa: E402
+from assets.runtime.hardened.version import (  # noqa: E402
+    PRODUCT_ID,
+    PRODUCT_NAME,
+    UPDATE_MANIFEST_SCHEMA_VERSION,
+    VERSION,
+)
 
 
 class BuildError(RuntimeError):
