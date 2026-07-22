@@ -1,0 +1,130 @@
+        except Exception:
+            pass
+
+    def save(self):
+        try:
+            set_active(self.combo.get())
+            self.win.destroy()
+        except Exception as exc:
+            messagebox.showerror("Error", str(exc), parent=self.win)
+
+
+def _set_active_serial(serial_port):
+    global _active_serial
+    with _serial_lock:
+        _active_serial = serial_port
+
+
+def _close_active_serial():
+    global _active_serial
+    with _serial_lock:
+        serial_port = _active_serial
+        _active_serial = None
+    if serial_port is not None:
+        try:
+            serial_port.close()
+        except Exception:
+            pass
+
+
+def stop_hotkey():
+    if os.name == "nt" and _hotkey_tid:
+        try:
+            ctypes.windll.user32.PostThreadMessageW(_hotkey_tid, 0x0012, 0, 0)
+        except Exception:
+            pass
+
+
+def shutdown(reason, icon=None):
+    """Cierra puerto, bandeja, atajo, hilos y finalmente el proceso completo."""
+    global _shutdown_started
+    with _shutdown_lock:
+        if _shutdown_started:
+            return
+        _shutdown_started = True
+
+    log(f"ℹ️ Cerrando lector: {reason}")
+    STOP.set()
+    _close_active_serial()
+    stop_hotkey()
+    try:
+        (icon or _tray_icon).stop()
+    except Exception:
+        pass
+    time.sleep(0.15)
+    os._exit(0)
+
+
+def _set_low_resource_mode():
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.kernel32.SetPriorityClass(
+            ctypes.windll.kernel32.GetCurrentProcess(),
+            BELOW_NORMAL_PRIORITY_CLASS,
+        )
+    except Exception as exc:
+        log(f"⚠️ No se pudo bajar la prioridad del lector: {exc}")
+
+
+def _same_exe_pids():
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return []
+    name = os.path.basename(sys.executable)
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {name}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            encoding=locale.getpreferredencoding(False) or "utf-8",
+            errors="replace",
+            creationflags=CREATE_NO_WINDOW,
+            check=False,
+        )
+    except Exception:
+        return []
+
+    pids = []
+    for row in csv.reader(result.stdout.splitlines()):
+        if len(row) >= 2 and row[0].lower() == name.lower():
+            try:
+                pid = int(row[1].replace(",", ""))
+                if pid != os.getpid():
+                    pids.append(pid)
+            except Exception:
+                pass
+    return pids
+
+
+def _kill_previous_instances():
+    killed = False
+    for pid in _same_exe_pids():
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=CREATE_NO_WINDOW,
+                check=False,
+            )
+            killed = result.returncode == 0 or killed
+        except Exception:
+            pass
+    return killed
+
+
+def ensure_single_instance():
+    """Permite cerrar la copia anterior y continuar con la nueva."""
+    global _mutex_handle
+    if os.name != "nt":
+        return True
+
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    ctypes.set_last_error(0)
