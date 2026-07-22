@@ -37,10 +37,18 @@ _original_set_active = config.set_active
 _original_write_form = fast._write_form_fast
 
 
+def _stable_window_title(target):
+    """Elimina estados dinámicos como '- [Tarjeta habientes: Buscando ]'."""
+    title = str(target.get("title") or "").strip().casefold()
+    if " - [" in title:
+        title = title.split(" - [", 1)[0].strip()
+    return title
+
+
 def _target_key(target):
     return (
         int(target.get("pid") or 0),
-        str(target.get("title") or "").strip().casefold(),
+        _stable_window_title(target),
     )
 
 
