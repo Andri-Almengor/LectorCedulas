@@ -17,18 +17,25 @@ guard.FIELD_RETRY_DELAY = 0.025
 guard.VERIFY_READ_DELAY = 0.01
 guard.WINDOW_MESSAGE_TIMEOUT_MS = 40
 
-# Pausas cortas pero suficientes para Ctrl+V, Tab y validaciones de Lenel.
+# La validación puede ser rápida, pero Lenel necesita una pausa ligeramente mayor
+# para procesar el cambio de control después de Tab.
 reader.INITIAL_FORM_SETTLE = 0.03
 reader.FOCUS_RESTORE_TIMEOUT = 0.70
-reader.TAB_STEP_DELAY = 0.025
-reader.TAB_GROUP_DELAY = 0.035
-reader.PRE_FIELD_DELAY = 0.015
+reader.TAB_STEP_DELAY = 0.08
+reader.TAB_GROUP_DELAY = 0.04
+reader.PRE_FIELD_DELAY = 0.025
 reader.CLIPBOARD_SETTLE_DELAY = 0.015
 reader.PASTE_KEY_DELAY = 0.008
 reader.POST_PASTE_DELAY = 0.045
 reader.EMPTY_FIELD_DELAY = 0.015
-reader.POST_FIELD_TAB_DELAY = 0.025
-reader.BETWEEN_FIELDS_DELAY = 0.025
+reader.POST_FIELD_TAB_DELAY = 0.07
+reader.BETWEEN_FIELDS_DELAY = 0.07
+
+# Parámetros exclusivos para confirmar que Lenel procesó el Tab.
+TAB_KEY_HOLD_SECONDS = 0.015
+TAB_FOCUS_TIMEOUT = 0.16
+TAB_FOCUS_POLL_SECONDS = 0.01
+TAB_FINAL_SETTLE_SECONDS = 0.045
 
 # Reduce únicamente las esperas entre lecturas consecutivas. La cola y el orden
 # de escritura se conservan.
@@ -39,9 +46,9 @@ queue_guard.TARGET_CHECK_SECONDS = 0.01
 
 def _apply_fast_keyboard_profile():
     """Aplica el perfil después de patch_core(), que usa valores conservadores."""
-    core.pyautogui.PAUSE = 0.005
-    core.TAB_PAUSE = 0.025
-    core.BETWEEN_FIELDS = 0.035
+    core.pyautogui.PAUSE = 0.008
+    core.TAB_PAUSE = 0.08
+    core.BETWEEN_FIELDS = 0.07
 
 
 def _paste_clipboard(target, value, replace_existing=False):
@@ -97,6 +104,38 @@ def _wait_until_value_matches(control, expected, timeout):
             return False
 
     return False
+
+
+def _press_tab_and_wait_for_lenel(target, extra_delay=0.0):
+    """Envía un Tab completo y espera que Lenel entregue el siguiente control."""
+    if not reader._ensure_target_focus(target):
+        return False
+
+    previous_control = guard._focused_control(target)
+    reader._release_modifier_keys()
+
+    try:
+        core.pyautogui.keyDown("tab")
+        if session.STOP.wait(TAB_KEY_HOLD_SECONDS):
+            return False
+    finally:
+        try:
+            core.pyautogui.keyUp("tab")
+        except Exception:
+            pass
+
+    # Si Windows expone los controles internos, continúa apenas cambia el foco.
+    # En controles privados se utiliza un asentamiento corto y fijo.
+    deadline = time.monotonic() + TAB_FOCUS_TIMEOUT + max(0.0, extra_delay)
+    while not session.STOP.is_set() and time.monotonic() < deadline:
+        current_control = guard._focused_control(target)
+        if previous_control and current_control and current_control != previous_control:
+            return not session.STOP.wait(TAB_FINAL_SETTLE_SECONDS)
+
+        if session.STOP.wait(TAB_FOCUS_POLL_SECONDS):
+            return False
+
+    return not session.STOP.wait(TAB_FINAL_SETTLE_SECONDS)
 
 
 def _compatible_protected_write(value, target, position, label):
@@ -210,7 +249,9 @@ def _write_form_fast(data, configuration):
 
 
 # El escritor de la cola consulta reader.write_form, mientras que el módulo de
-# verificación consulta el nombre global _write_verified_value.
+# verificación consulta el nombre global _write_verified_value. Todos los Tab
+# pasan por la variante que espera a que Lenel entregue el siguiente control.
 guard._write_verified_value = _fast_write_verified_value
+reader._press_tab_precisely = _press_tab_and_wait_for_lenel
 guard.write_form_verified = _write_form_fast
 reader.write_form = _write_form_fast
