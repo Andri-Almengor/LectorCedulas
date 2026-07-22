@@ -1,0 +1,130 @@
+        return False
+    except Exception as exc:
+        if callback and not STOP.is_set():
+            callback(f"⚠️ {port} no disponible: {exc}")
+        return False
+
+
+def find_reader(callback):
+    for item in core.serial.tools.list_ports.comports():
+        if STOP.is_set():
+            return None
+        port = item.device
+        callback(f"🧪 {port} - Pase la cédula")
+        try:
+            with core.serial.Serial(port, 9600, timeout=0.25) as serial_port:
+                serial_port.reset_input_buffer()
+                data = bytearray()
+                start = time.monotonic()
+                while not STOP.is_set() and time.monotonic() - start < 6:
+                    waiting = serial_port.in_waiting
+                    if waiting:
+                        data.extend(serial_port.read(waiting))
+                        if len(data) >= 100:
+                            callback(f"✅ {port} detectado")
+                            return port
+                    if _wait(SERIAL_POLL):
+                        return None
+        except Exception as exc:
+            callback(f"❌ {port} falló: {exc}")
+    if not STOP.is_set():
+        callback("🔴 No se detectó lector QR.")
+    return None
+
+
+def write_form(data, config):
+    """Envía eventos más despacio para no bloquear la aplicación del formulario."""
+    for field in config.get("campos", []):
+        if STOP.is_set():
+            return
+        core.safe_tab(field.get("tabuladores", 0))
+        label = (field.get("dato") or "").strip()
+        core.write_field_value(data.get(label, ""), is_critical=False)
+        if _wait(0.08):
+            return
+        core.pyautogui.press("tab")
+        if _wait(core.BETWEEN_FIELDS):
+            return
+
+
+def serial_listener(port):
+    try:
+        with core.serial.Serial(port, 9600, timeout=0.25) as serial_port:
+            _set_active_serial(serial_port)
+            serial_port.reset_input_buffer()
+            wait_serial_silent(serial_port)
+            log(f"ℹ️ Lector activo en {port} con modo de bajo consumo.")
+
+            while not STOP.is_set():
+                raw = read_serial_buffer(serial_port)
+                if STOP.is_set():
+                    break
+                if not raw:
+                    continue
+
+                bad, reason = core._buffer_parece_mezclado_o_incompleto(raw)
+                if bad:
+                    core.guardar_raw_no_reconocido(raw, reason)
+                    wait_serial_silent(serial_port)
+                    continue
+
+                now = time.monotonic()
+                with core._processing_lock:
+                    if now - core._last_read_ts < core.COOLDOWN_SECONDS:
+                        wait_serial_silent(serial_port)
+                        continue
+                    core._last_read_ts = now
+
+                try:
+                    data = core.parse_cedula_unificada(raw)
+                    log(data)
+                    if not core._is_probably_valid_person(data):
+                        core.guardar_raw_no_reconocido(raw, "datos_no_confiables")
+                        continue
+                    config = load_active()
+                    if config:
+                        serial_port.reset_input_buffer()
+                        if _wait(0.12):
+                            break
+                        write_form(data, config)
+                        if _wait(0.18):
+                            break
+                        serial_port.reset_input_buffer()
+                        wait_serial_silent(serial_port)
+                except Exception as exc:
+                    if not STOP.is_set():
+                        log(f"⚠️ Error procesando lectura: {exc}")
+    except Exception as exc:
+        if not STOP.is_set():
+            log(f"❌ Error del puerto serial {port}: {exc}")
+    finally:
+        _set_active_serial(None)
+
+
+def patch_core():
+    core.VERSION = VERSION
+    core.CONFIG_DIR = FORMS
+    core.CONFIG_ACTUAL = ACTIVE
+    core.CONFIG_DEFECTO = DEFAULT_FORM
+    core.LAST_COM_FILE = LAST_COM
+    core.CRITICAL_FIELDS = set()
+    core.pyautogui.PAUSE = 0.035
+    core.TAB_PAUSE = 0.06
+    core.BETWEEN_FIELDS = 0.14
+    core.SelectorConfiguracionGUI = ConfigSelector
+    core.inicializar_configuracion = initialize
+    core.cargar_configuracion_activa = load_active
+    core.cargar_ultimo_com = load_last_com
+    core.guardar_ultimo_com = save_last_com
+    core.puerto_responde = port_responds
+    core.encontrar_lector_qr_por_actividad = find_reader
+    core._esperar_serial_silencioso = wait_serial_silent
+    core._leer_buffer_serial = read_serial_buffer
+    core.escribir_con_configuracion = write_form
+    core.escuchar_en_segundo_plano = serial_listener
+
+
+def hotkey_loop(icon):
+    global _hotkey_tid
+    if os.name != "nt":
+        return
