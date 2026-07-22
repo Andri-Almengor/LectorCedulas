@@ -1,207 +1,225 @@
-import ctypes, json, os, shutil, sys, threading
-from datetime import datetime
-from tkinter import Tk, Toplevel, messagebox, ttk
+import os
+import threading
+from tkinter import Tk, messagebox, ttk
+
+from assets.runtime import dms_config_runtime as config
+from assets.runtime import dms_reader_runtime as reader
+from assets.runtime import dms_session_runtime as session
 from assets.runtime import lector_core as core
 
-VERSION = "3.8.1"
+
+VERSION = "3.9.0"
 HOTKEY = "Ctrl+Alt+C"
-ROOT = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
-os.chdir(ROOT)
-CFG = os.path.join(ROOT, "configs")
-FORMS = os.path.join(CFG, "formularios")
-SYSTEM = os.path.join(CFG, "sistema")
-FORMATS = os.path.join(CFG, "formatos")
-ACTIVE = os.path.join(SYSTEM, "config_actual.json")
-FAVORITES = os.path.join(SYSTEM, "favoritos.json")
-LAST_COM = os.path.join(SYSTEM, "ultimo_com.json")
-DEFAULT_FORM = os.path.join(FORMS, "formulario_visitantes.json")
-_lock = threading.RLock()
-_hotkey_tid = None
 
 
-def read_json(path, default):
-    try:
-        with open(path, "r", encoding="utf-8") as f: return json.load(f)
-    except Exception: return default
+def toggle_configuration(icon=None):
+    if session.STOP.is_set():
+        return
 
-
-def write_json(path, data):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f: json.dump(data, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
-
-
-def move_old(src, folder, name=None):
-    if not os.path.isfile(src): return
-    os.makedirs(folder, exist_ok=True)
-    dst = os.path.join(folder, name or os.path.basename(src))
-    if os.path.exists(dst):
+    first, second = config.favorite_names()
+    if not first or not second or first == second:
+        message = "Defina dos favoritas distintas en Crear configuraciones."
+        session.log("⚠️ " + message)
         try:
-            if open(src, "rb").read() == open(dst, "rb").read(): os.remove(src); return
-        except Exception: pass
-        stem, ext = os.path.splitext(os.path.basename(dst))
-        dst = os.path.join(folder, f"{stem}_migrada_{datetime.now():%Y%m%d_%H%M%S}{ext}")
-    shutil.move(src, dst)
+            icon.notify(message, "DMS - Configuraciones")
+        except Exception:
+            pass
+        return
 
-
-def migrate():
-    for folder in (FORMS, SYSTEM, FORMATS): os.makedirs(folder, exist_ok=True)
-    reserved = {
-        "config_actual.json": (SYSTEM, None), "ultimo_com.json": (SYSTEM, None),
-        "favoritos.json": (SYSTEM, None), "formatos_cedulas.json": (FORMATS, None),
-    }
-    for name, target in reserved.items(): move_old(os.path.join(CFG, name), *target)
-    for name in os.listdir(CFG):
-        path = os.path.join(CFG, name)
-        if os.path.isfile(path) and name.lower().endswith(".json"): move_old(path, FORMS)
-
-
-def forms():
-    os.makedirs(FORMS, exist_ok=True)
-    return sorted((n for n in os.listdir(FORMS) if n.lower().endswith(".json")), key=str.lower)
-
-
-def active_name():
-    name = os.path.basename(str(read_json(ACTIVE, {}).get("activa", "")))
-    available = forms()
-    return name if name in available else (available[0] if available else "")
-
-
-def set_active(name):
-    name = os.path.basename(name or "")
-    if name not in forms(): raise ValueError("La configuración no existe.")
-    with _lock: write_json(ACTIVE, {"activa": name})
-
-
-def favorite_names():
-    data, available = read_json(FAVORITES, {}), set(forms())
-    a = os.path.basename(str(data.get("favorito_1", "")))
-    b = os.path.basename(str(data.get("favorito_2", "")))
-    return (a if a in available else "", b if b in available else "")
-
-
-def toggle(icon=None):
-    with _lock:
-        a, b = favorite_names()
-        if not a or not b or a == b:
-            msg = "Defina dos favoritas distintas en Crear configuraciones."
-            core.guardar_log("⚠️ " + msg)
-            try: icon.notify(msg, "DMS - Configuraciones")
-            except Exception: pass
-            return
-        target = b if active_name() == a else a
-        set_active(target)
-        core.guardar_log(f"✅ Configuración activa: {target}")
-        try: icon.notify(f"Configuración activa: {os.path.splitext(target)[0]}", "DMS - Cambio rápido")
-        except Exception: pass
-
-
-def initialize():
-    migrate()
-    if not os.path.exists(DEFAULT_FORM):
-        write_json(DEFAULT_FORM, {"nombre":"Formulario Visitantes","campos":[
-            {"dato":"Primer Apellido","tabuladores":0},{"dato":"Nombre","tabuladores":0},
-            {"dato":"Cedula","tabuladores":1},{"dato":"Fecha de Nacimiento","tabuladores":2}]})
-    if not os.path.exists(ACTIVE): set_active(forms()[0])
-    if not os.path.exists(FAVORITES): write_json(FAVORITES, {"favorito_1":"","favorito_2":"","atajo":HOTKEY})
-
-
-def load_active():
+    target = second if config.active_name() == first else first
+    config.set_active(target)
+    session.log(f"✅ Configuración activa: {target}")
     try:
-        with open(os.path.join(FORMS, active_name()), "r", encoding="utf-8") as f: return json.load(f)
-    except Exception as e: core.guardar_log(f"⚠️ Error cargando configuración: {e}"); return None
-
-
-def load_last_com():
-    value = str(read_json(LAST_COM, {}).get("puerto", "")).strip()
-    return value or None
-
-
-def save_last_com(port):
-    write_json(LAST_COM, {"puerto": str(port).strip(), "fecha": datetime.now().isoformat()})
-
-
-class ConfigSelector:
-    def __init__(self, parent=None):
-        self.win = Toplevel(parent) if parent else Tk(); self.win.title("Seleccionar configuración")
-        self.win.geometry("460x275"); self.win.resizable(False, False); self.win.configure(bg=core.COLOR_BG)
-        try: self.win.iconbitmap(default=core.ICON_ASSETS_PATH)
-        except Exception: pass
-        s=ttk.Style(self.win); s.theme_use("clam"); s.configure("X.TFrame",background=core.COLOR_BG)
-        s.configure("X.TLabel",background=core.COLOR_BG,foreground="white",font=("Segoe UI",11))
-        s.configure("X.TButton",background=core.COLOR_ACCENT,foreground="white",font=("Segoe UI",10,"bold"),padding=7)
-        f=ttk.Frame(self.win,padding=22,style="X.TFrame"); f.pack(fill="both",expand=True)
-        ttk.Label(f,text="Seleccione la configuración activa:",style="X.TLabel").pack(anchor="w",pady=(8,8))
-        available=forms()
-        if not available: messagebox.showerror("Sin configuraciones","No hay formularios disponibles.",parent=self.win); self.win.destroy(); return
-        self.combo=ttk.Combobox(f,values=available,state="readonly",width=48); self.combo.pack(fill="x",pady=(0,12)); self.combo.set(active_name())
-        a,b=favorite_names(); ttk.Label(f,text=f"Favoritas: {a or 'sin definir'} ↔ {b or 'sin definir'}\nAtajo: {HOTKEY}",style="X.TLabel").pack(anchor="w",pady=(0,15))
-        ttk.Button(f,text="Activar",style="X.TButton",command=self.save).pack()
-        self.win.grab_set(); self.win.focus_force(); self.win.wait_window()
-    def save(self):
-        try: set_active(self.combo.get()); self.win.destroy()
-        except Exception as e: messagebox.showerror("Error",str(e),parent=self.win)
+        icon.notify(
+            f"Configuración activa: {os.path.splitext(target)[0]}",
+            "DMS - Cambio rápido",
+        )
+    except Exception:
+        pass
 
 
 def patch_core():
-    core.VERSION=VERSION; core.CONFIG_DIR=FORMS; core.CONFIG_ACTUAL=ACTIVE; core.CONFIG_DEFECTO=DEFAULT_FORM; core.LAST_COM_FILE=LAST_COM
-    # El pegado Unicode ya conserva Ñ y tildes. Desactivar los campos críticos evita
-    # que Ctrl+A vuelva a seleccionar y reemplace el apellido recién escrito.
+    core.VERSION = VERSION
+    core.CONFIG_DIR = config.FORMS
+    core.CONFIG_ACTUAL = config.ACTIVE
+    core.CONFIG_DEFECTO = config.DEFAULT_FORM
+    core.LAST_COM_FILE = config.LAST_COM
+
+    # El pegado Unicode conserva Ñ y tildes sin volver a seleccionar el campo.
     core.CRITICAL_FIELDS = set()
-    core.SelectorConfiguracionGUI=ConfigSelector; core.inicializar_configuracion=initialize
-    core.cargar_configuracion_activa=load_active; core.cargar_ultimo_com=load_last_com; core.guardar_ultimo_com=save_last_com
+
+    # Ritmo conservador para no saturar aplicaciones de formularios lentas.
+    core.pyautogui.PAUSE = 0.035
+    core.TAB_PAUSE = 0.06
+    core.BETWEEN_FIELDS = 0.14
+
+    core.SelectorConfiguracionGUI = config.ConfigSelector
+    core.inicializar_configuracion = config.initialize
+    core.cargar_configuracion_activa = config.load_active
+    core.cargar_ultimo_com = config.load_last_com
+    core.guardar_ultimo_com = config.save_last_com
+    core.puerto_responde = reader.port_responds
+    core.encontrar_lector_qr_por_actividad = reader.find_reader
+    core._esperar_serial_silencioso = reader.wait_serial_silent
+    core._leer_buffer_serial = reader.read_serial_buffer
+    core.escribir_con_configuracion = reader.write_form
+    core.escuchar_en_segundo_plano = (
+        lambda port: reader.serial_listener(port, config.load_active)
+    )
 
 
-def hotkey_loop(icon):
-    global _hotkey_tid
-    if os.name != "nt": return
-    import ctypes.wintypes
-    u32,k32=ctypes.windll.user32,ctypes.windll.kernel32; _hotkey_tid=k32.GetCurrentThreadId()
-    if not u32.RegisterHotKey(None,0xD35,0x0001|0x0002|0x4000,ord("C")):
-        core.guardar_log(f"⚠️ No se pudo registrar {HOTKEY}"); return
+def calibration_window():
+    selected = []
+    root = Tk()
+    root.title(f"Calibrando lector QR - v{VERSION}")
+    root.configure(bg=core.COLOR_BG)
+    root.protocol(
+        "WM_DELETE_WINDOW",
+        lambda: session.shutdown("Se cerró la ventana de calibración"),
+    )
+
     try:
-        msg=ctypes.wintypes.MSG()
-        while u32.GetMessageW(ctypes.byref(msg),None,0,0)>0:
-            if msg.message==0x0312 and msg.wParam==0xD35: toggle(icon)
-    finally: u32.UnregisterHotKey(None,0xD35)
+        root.iconbitmap(default=core.ICON_ASSETS_PATH)
+    except Exception:
+        pass
+
+    style = ttk.Style(root)
+    style.theme_use("clam")
+    style.configure(
+        "Calibration.TLabel",
+        background=core.COLOR_BG,
+        foreground=core.COLOR_TEXT,
+        font=("Segoe UI", 12),
+    )
+    status_label = ttk.Label(
+        root,
+        text="Inicializando...",
+        style="Calibration.TLabel",
+    )
+    status_label.pack(padx=30, pady=30)
+
+    def update_status(text):
+        try:
+            root.after(0, lambda value=text: status_label.config(text=value))
+        except Exception:
+            pass
+
+    def worker():
+        try:
+            last_port = config.load_last_com()
+            if last_port and reader.port_responds(last_port, update_status, 3):
+                selected.append(last_port)
+            elif not session.STOP.is_set():
+                detected = reader.find_reader(update_status)
+                if detected:
+                    config.save_last_com(detected)
+                    selected.append(detected)
+        finally:
+            try:
+                root.after(0, root.destroy)
+            except Exception:
+                pass
+
+    threading.Thread(
+        target=worker,
+        name="DMSCalibration",
+        daemon=True,
+    ).start()
+    root.mainloop()
+    return selected[0] if selected else None
 
 
-def stop_hotkey():
-    if os.name=="nt" and _hotkey_tid:
-        try: ctypes.windll.user32.PostThreadMessageW(_hotkey_tid,0x0012,0,0)
-        except Exception: pass
+def detect_reader():
+    while not session.STOP.is_set():
+        port = calibration_window()
+        if port:
+            return port
+        if session.STOP.is_set():
+            return None
+
+        dialog = Tk()
+        dialog.withdraw()
+        dialog.attributes("-topmost", True)
+        retry = messagebox.askretrycancel(
+            "No se detectó lector",
+            "No se detectó el lector QR.\n\n¿Intentar nuevamente?",
+            parent=dialog,
+        )
+        dialog.destroy()
+
+        if not retry:
+            session.shutdown("Se canceló la detección del lector")
+    return None
+
+
+def open_selector(icon=None, item=None):
+    config.open_selector(session.STOP, hotkey=HOTKEY)
 
 
 def run():
-    patch_core(); core.ensure_single_instance(); core.validar_licencia(); initialize()
-    selected=[]
-    while not selected:
-        root=Tk(); root.title(f"Calibrando lector QR - v{VERSION}"); root.configure(bg=core.COLOR_BG)
-        label=ttk.Label(root,text="Inicializando...",font=("Segoe UI",12)); label.pack(padx=30,pady=30)
-        def status(text):
-            try: label.config(text=text); root.update()
-            except Exception: pass
-        def calibrate():
-            last=load_last_com(); port=last if last and core.puerto_responde(last,status,segundos=3) else core.encontrar_lector_qr_por_actividad(status)
-            if port: save_last_com(port); selected.append(port)
-            try: root.after(0,root.destroy)
-            except Exception: pass
-        threading.Thread(target=calibrate,daemon=True).start(); root.mainloop()
-        if not selected:
-            x=Tk(); x.withdraw(); retry=messagebox.askretrycancel("No se detectó lector","No se detectó el lector QR.\n\n¿Intentar nuevamente?",parent=x); x.destroy()
-            if not retry: return
-    root=Tk(); root.withdraw(); ConfigSelector(root); root.destroy(); core.ocultar_consola()
-    threading.Thread(target=core.escuchar_en_segundo_plano,args=(selected[0],),daemon=True).start()
-    def exit_app(icon,item=None): stop_hotkey(); icon.stop(); os._exit(0)
-    def choose(icon,item=None):
-        def open_ui():
-            try: r=Tk(); r.withdraw(); ConfigSelector(r); r.destroy()
-            except Exception as e: core.guardar_log(f"⚠️ Error abriendo selector: {e}")
-        threading.Thread(target=open_ui,daemon=True).start()
-    image=core.cargar_icono(); icon=core.TrayIcon("DMS_QR",image,"DMS - Lector QR",menu=core.TrayMenu(
-        core.TrayMenuItem(f"Alternar favoritas ({HOTKEY})",lambda i,x=None:toggle(i)),
-        core.TrayMenuItem("Cambiar configuración",choose),core.TrayMenuItem("Salir",exit_app)))
-    threading.Thread(target=hotkey_loop,args=(icon,),daemon=True).start(); icon.run()
+    patch_core()
+    session.configure_logger(core.guardar_log)
+    session.set_low_resource_mode()
 
-if __name__ == "__main__": run()
+    if not session.ensure_single_instance():
+        return
+
+    session.start_watchers()
+
+    # Mantiene el comportamiento de licencia existente del proyecto.
+    core.validar_licencia()
+    config.initialize(HOTKEY)
+
+    port = detect_reader()
+    if not port or session.STOP.is_set():
+        return
+
+    root = Tk()
+    root.withdraw()
+    config.ConfigSelector(root, stop_event=session.STOP, hotkey=HOTKEY)
+    root.destroy()
+
+    if session.STOP.is_set():
+        return
+
+    core.ocultar_consola()
+    threading.Thread(
+        target=reader.serial_listener,
+        args=(port, config.load_active),
+        name="DMSSerialListener",
+        daemon=True,
+    ).start()
+
+    image = core.cargar_icono()
+    tray_icon = core.TrayIcon(
+        "DMS_QR",
+        image,
+        "DMS - Lector QR",
+        menu=core.TrayMenu(
+            core.TrayMenuItem(
+                f"Alternar favoritas ({HOTKEY})",
+                lambda icon, item=None: toggle_configuration(icon),
+            ),
+            core.TrayMenuItem("Cambiar configuración", open_selector),
+            core.TrayMenuItem(
+                "Salir",
+                lambda icon, item=None: session.shutdown(
+                    "Salida desde la bandeja",
+                    icon,
+                ),
+            ),
+        ),
+    )
+    session.set_tray_icon(tray_icon)
+
+    threading.Thread(
+        target=session.hotkey_loop,
+        args=(toggle_configuration, tray_icon),
+        name="DMSHotkey",
+        daemon=True,
+    ).start()
+    tray_icon.run()
+
+
+if __name__ == "__main__":
+    run()
