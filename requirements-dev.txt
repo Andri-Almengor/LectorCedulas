@@ -1,0 +1,6 @@
+-r requirements.txt
+pytest==9.0.2
+hypothesis==6.151.9
+ruff==0.14.10
+PyInstaller==6.17.0
+cyclonedx-bom==7.2.1
