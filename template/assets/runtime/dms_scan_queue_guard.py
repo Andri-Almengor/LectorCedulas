@@ -12,9 +12,9 @@ from assets.runtime import lector_core as core
 
 
 QUEUE_CAPACITY = 64
-FORM_REARM_SECONDS = 1.80
-TARGET_STABLE_SECONDS = 0.70
-TARGET_CHECK_SECONDS = 0.10
+FORM_REARM_SECONDS = 0.80
+TARGET_STABLE_SECONDS = 0.20
+TARGET_CHECK_SECONDS = 0.05
 TARGET_STATUS_LOG_SECONDS = 5.0
 RECENT_TARGET_SECONDS = 12.0
 DUPLICATE_WINDOW_SECONDS = 0.85
@@ -277,6 +277,4 @@ def serial_listener_queued(port, load_configuration):
         session.set_active_serial(None)
 
 
-# Parche aplicado al importar el paquete runtime. PyInstaller lo incluye mediante
-# la importación estática de assets.runtime.__init__.
 reader.serial_listener = serial_listener_queued
