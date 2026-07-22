@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="es"><meta charset="utf-8"><title>DMS QA Browser Form</title>
+<body>
+<label>Primer Apellido <input id="apellido"></label><br>
+<label>Nombre <input id="nombre"></label><br>
+<label>Cédula <input id="cedula"></label><br>
+<label>Fecha nacimiento <input id="fecha"></label><br>
+<pre id="result"></pre>
+<script>
+setInterval(() => {
+  result.textContent = JSON.stringify({apellido: apellido.value, nombre: nombre.value, cedula: cedula.value, fecha: fecha.value});
+}, 100);
+apellido.focus();
+</script>
+</body></html>
