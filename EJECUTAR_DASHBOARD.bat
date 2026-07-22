@@ -2,5 +2,5 @@
 setlocal
 cd /d "%~dp0"
 py -m pip install -r requirements.lock
-py dashboard_secure.py
+py dashboard.py
 pause
