@@ -1,3 +1,6 @@
+import ctypes
+import os
+import threading
 import time
 
 from assets.runtime import dms_session_runtime as session
@@ -5,6 +8,19 @@ from assets.runtime import lector_core as core
 
 
 SERIAL_POLL_SECONDS = 0.025
+INITIAL_FORM_SETTLE = 0.55
+FOCUS_RESTORE_TIMEOUT = 2.5
+TAB_STEP_DELAY = 0.14
+TAB_GROUP_DELAY = 0.28
+PRE_FIELD_DELAY = 0.16
+CLIPBOARD_SETTLE_DELAY = 0.12
+PASTE_KEY_DELAY = 0.08
+POST_PASTE_DELAY = 0.38
+EMPTY_FIELD_DELAY = 0.12
+POST_FIELD_TAB_DELAY = 0.20
+BETWEEN_FIELDS_DELAY = 0.24
+
+_write_lock = threading.Lock()
 
 
 def wait_serial_silent(serial_port, quiet_seconds=0.35, timeout=2.0):
@@ -115,21 +131,259 @@ def find_reader(callback):
     return None
 
 
-def write_form(data, configuration):
-    """Escribe con pausas controladas para no saturar la aplicación destino."""
-    for field in configuration.get("campos", []):
+def _foreground_window():
+    if os.name != "nt":
+        return 0
+    try:
+        return int(ctypes.windll.user32.GetForegroundWindow())
+    except Exception:
+        return 0
+
+
+def _window_process_id(hwnd):
+    if os.name != "nt" or not hwnd:
+        return 0
+    try:
+        process_id = ctypes.c_ulong()
+        ctypes.windll.user32.GetWindowThreadProcessId(
+            ctypes.c_void_p(hwnd),
+            ctypes.byref(process_id),
+        )
+        return int(process_id.value)
+    except Exception:
+        return 0
+
+
+def _window_title(hwnd):
+    if os.name != "nt" or not hwnd:
+        return ""
+    try:
+        length = ctypes.windll.user32.GetWindowTextLengthW(ctypes.c_void_p(hwnd))
+        buffer = ctypes.create_unicode_buffer(length + 1)
+        ctypes.windll.user32.GetWindowTextW(
+            ctypes.c_void_p(hwnd),
+            buffer,
+            length + 1,
+        )
+        return buffer.value or ""
+    except Exception:
+        return ""
+
+
+def _capture_target_window():
+    hwnd = _foreground_window()
+    return {
+        "hwnd": hwnd,
+        "pid": _window_process_id(hwnd),
+        "title": _window_title(hwnd),
+    }
+
+
+def _ensure_target_focus(target):
+    """Mantiene los eventos dentro de la aplicación que estaba activa al leer."""
+    if os.name != "nt" or not target.get("pid"):
+        return True
+
+    current = _foreground_window()
+    if _window_process_id(current) == target["pid"]:
+        target["hwnd"] = current
+        return True
+
+    deadline = time.monotonic() + FOCUS_RESTORE_TIMEOUT
+    while not session.STOP.is_set() and time.monotonic() < deadline:
+        hwnd = target.get("hwnd")
+        if hwnd:
+            try:
+                ctypes.windll.user32.ShowWindow(ctypes.c_void_p(hwnd), 9)
+                ctypes.windll.user32.BringWindowToTop(ctypes.c_void_p(hwnd))
+                ctypes.windll.user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
+            except Exception:
+                pass
+
+        if session.STOP.wait(0.10):
+            return False
+
+        current = _foreground_window()
+        if _window_process_id(current) == target["pid"]:
+            target["hwnd"] = current
+            return True
+
+    return False
+
+
+def _release_modifier_keys():
+    for key in ("ctrl", "shift", "alt", "win"):
+        try:
+            core.pyautogui.keyUp(key)
+        except Exception:
+            pass
+
+
+def _read_windows_clipboard():
+    if os.name != "nt":
+        return None
+
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    CF_UNICODETEXT = 13
+
+    try:
+        user32.GetClipboardData.restype = ctypes.c_void_p
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        if not user32.OpenClipboard(None):
+            return None
+        try:
+            handle = user32.GetClipboardData(CF_UNICODETEXT)
+            if not handle:
+                return None
+            pointer = kernel32.GlobalLock(handle)
+            if not pointer:
+                return None
+            try:
+                return ctypes.wstring_at(pointer)
+            finally:
+                kernel32.GlobalUnlock(handle)
+        finally:
+            user32.CloseClipboard()
+    except Exception:
+        return None
+
+
+def _prepare_verified_clipboard(value):
+    text = str(value)
+    for _ in range(4):
         if session.STOP.is_set():
-            return
+            return False
+        try:
+            written = core._set_clipboard_text_windows(text)
+        except Exception:
+            written = False
 
-        core.safe_tab(field.get("tabuladores", 0))
-        label = (field.get("dato") or "").strip()
-        core.write_field_value(data.get(label, ""), is_critical=False)
+        if written:
+            session.STOP.wait(CLIPBOARD_SETTLE_DELAY)
+            current = _read_windows_clipboard()
+            if current == text:
+                return True
+        session.STOP.wait(0.10)
+    return False
 
-        if session.STOP.wait(0.08):
-            return
-        core.pyautogui.press("tab")
-        if session.STOP.wait(core.BETWEEN_FIELDS):
-            return
+
+def _paste_value_precisely(value, target):
+    if value in (None, ""):
+        return not session.STOP.wait(EMPTY_FIELD_DELAY)
+
+    text = str(value)
+    if not _ensure_target_focus(target):
+        session.log("⚠️ Se perdió el foco del formulario antes de escribir un campo.")
+        return False
+
+    _release_modifier_keys()
+    if _prepare_verified_clipboard(text):
+        if not _ensure_target_focus(target):
+            return False
+        try:
+            core.pyautogui.keyDown("ctrl")
+            if session.STOP.wait(PASTE_KEY_DELAY):
+                return False
+            core.pyautogui.press("v")
+            if session.STOP.wait(PASTE_KEY_DELAY):
+                return False
+        finally:
+            try:
+                core.pyautogui.keyUp("ctrl")
+            except Exception:
+                pass
+    else:
+        # Respaldo conservador cuando Windows no permite verificar el portapapeles.
+        core.safe_write(text)
+
+    return not session.STOP.wait(POST_PASTE_DELAY)
+
+
+def _press_tab_precisely(target, extra_delay=0.0):
+    if not _ensure_target_focus(target):
+        return False
+    _release_modifier_keys()
+    core.pyautogui.press("tab")
+    return not session.STOP.wait(TAB_STEP_DELAY + extra_delay)
+
+
+def _move_tabs_precisely(count, target):
+    try:
+        total = max(0, min(250, int(count or 0)))
+    except Exception:
+        total = 0
+
+    for index in range(total):
+        if session.STOP.is_set():
+            return False
+        extra = TAB_GROUP_DELAY if (index + 1) % 5 == 0 else 0.0
+        if not _press_tab_precisely(target, extra_delay=extra):
+            return False
+    return True
+
+
+def write_form(data, configuration):
+    """Escritura secuencial de ultra precisión para formularios lentos."""
+    fields = list(configuration.get("campos", []))
+    if not fields:
+        return False
+
+    with _write_lock:
+        if session.STOP.wait(INITIAL_FORM_SETTLE):
+            return False
+
+        target = _capture_target_window()
+        session.log(
+            "ℹ️ Escritura precisa iniciada: "
+            f"{len(fields)} campos; ventana='{target.get('title') or 'sin título'}'."
+        )
+        _release_modifier_keys()
+
+        for position, field in enumerate(fields, start=1):
+            if session.STOP.is_set():
+                return False
+
+            label = (field.get("dato") or "").strip()
+            previous_tabs = field.get("tabuladores", 0)
+
+            if not _move_tabs_precisely(previous_tabs, target):
+                session.log(
+                    f"⚠️ Escritura detenida antes del campo {position} '{label}': "
+                    "no se pudo conservar el foco."
+                )
+                return False
+
+            if session.STOP.wait(PRE_FIELD_DELAY):
+                return False
+
+            if not _paste_value_precisely(data.get(label, ""), target):
+                session.log(
+                    f"⚠️ No se pudo completar el campo {position} '{label}'."
+                )
+                return False
+
+            # Tiempo adicional para que validaciones JavaScript, .NET o formularios
+            # remotos terminen de procesar el valor antes de abandonar el campo.
+            if session.STOP.wait(POST_FIELD_TAB_DELAY):
+                return False
+
+            if not _press_tab_precisely(target):
+                session.log(
+                    f"⚠️ No se pudo avanzar después del campo {position} '{label}'."
+                )
+                return False
+
+            if session.STOP.wait(BETWEEN_FIELDS_DELAY):
+                return False
+
+            session.log(
+                f"✅ Campo {position}/{len(fields)} escrito: '{label}' "
+                f"(tabs previos: {previous_tabs})."
+            )
+
+        session.log("✅ Escritura precisa completada correctamente.")
+        return True
 
 
 def serial_listener(port, load_configuration):
@@ -173,10 +427,15 @@ def serial_listener(port, load_configuration):
                     configuration = load_configuration()
                     if configuration:
                         serial_port.reset_input_buffer()
-                        if session.STOP.wait(0.12):
+                        if session.STOP.wait(0.25):
                             break
-                        write_form(data, configuration)
-                        if session.STOP.wait(0.18):
+                        completed = write_form(data, configuration)
+                        if not completed and not session.STOP.is_set():
+                            session.log(
+                                "⚠️ La lectura fue correcta, pero la escritura del "
+                                "formulario no logró completarse."
+                            )
+                        if session.STOP.wait(0.30):
                             break
                         serial_port.reset_input_buffer()
                         wait_serial_silent(serial_port)
@@ -187,4 +446,5 @@ def serial_listener(port, load_configuration):
         if not session.STOP.is_set():
             session.log(f"❌ Error del puerto serial {port}: {error}")
     finally:
+        _release_modifier_keys()
         session.set_active_serial(None)
