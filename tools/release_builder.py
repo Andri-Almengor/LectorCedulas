@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -299,7 +298,6 @@ def make_update_zip(version: str, out_dir: str) -> str:
     build_root = CLIENTS / "_build" / f"UPDATE_{VERSION}_{datetime.now(timezone.utc):%Y%m%d_%H%M%S}"
     build_root.mkdir(parents=True, exist_ok=True)
     log = build_root / "build.log"
-    # El update no contiene licencia; usa un cliente técnico solo para preparar claves públicas.
     dummy = {
         "client_id": "UPDATE-BUILD",
         "license": {
