@@ -1,9 +1,47 @@
 {
+  "schema_version": 2,
+  "id": "formulario-visitantes",
   "nombre": "Formulario Visitantes",
+  "perfil_escritura": "equilibrada",
+  "validar_escritura": true,
+  "reemplazar_contenido": false,
+  "accion_final": "none",
   "campos": [
-    {"dato": "Primer Apellido", "tabuladores": 0},
-    {"dato": "Nombre", "tabuladores": 0},
-    {"dato": "Cedula", "tabuladores": 1},
-    {"dato": "Fecha de Nacimiento", "tabuladores": 2}
+    {
+      "dato": "Primer Apellido",
+      "tabuladores": 0,
+      "politica_vacio": "cancelar",
+      "reemplazar": false,
+      "validacion": "nombre",
+      "espera_adicional": 0.0,
+      "accion_posterior": "tab"
+    },
+    {
+      "dato": "Nombre",
+      "tabuladores": 0,
+      "politica_vacio": "cancelar",
+      "reemplazar": false,
+      "validacion": "nombre",
+      "espera_adicional": 0.0,
+      "accion_posterior": "tab"
+    },
+    {
+      "dato": "Cedula",
+      "tabuladores": 1,
+      "politica_vacio": "cancelar",
+      "reemplazar": false,
+      "validacion": "cedula",
+      "espera_adicional": 0.0,
+      "accion_posterior": "tab"
+    },
+    {
+      "dato": "Fecha de Nacimiento",
+      "tabuladores": 2,
+      "politica_vacio": "conservar",
+      "reemplazar": false,
+      "validacion": "fecha",
+      "espera_adicional": 0.0,
+      "accion_posterior": "none"
+    }
   ]
 }

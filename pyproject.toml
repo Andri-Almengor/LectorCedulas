@@ -1,0 +1,12 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+  "windows: requires a real Windows desktop",
+  "physical: requires physical reader or Lenel",
+  "install: installer/update tests",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
