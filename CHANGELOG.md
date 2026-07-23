@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.0.0-qa8 — 2026-07-23
+
+### Ciclo único de lectura
+
+- Desde que una lectura entra al parser, el runtime reserva un único ciclo de trabajo.
+- Cualquier cédula pasada mientras otra se procesa o escribe se descarta y nunca queda pendiente.
+- Al finalizar una escritura, cancelación o fallo de entrega comienza un enfriamiento exacto de 2 segundos.
+- Las lecturas realizadas durante el enfriamiento también se descartan; debe volver a pasarse la cédula cuando termine.
+- La cola efectiva queda limitada a un solo trabajo y ya no reproduce ráfagas antiguas después de terminar la lectura actual.
+- Una lectura rechazada por formato, configuración o validación libera el ciclo inmediatamente y no aplica enfriamiento.
+- Si un trabajo pendiente se elimina antes de escribir, la reserva se libera sin reproducirlo posteriormente.
+
 ## 4.0.0-qa7 — 2026-07-23
 
 ### Integridad de cada lectura
