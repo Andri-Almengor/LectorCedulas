@@ -5,7 +5,6 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from .models import ScanJob
 from .privacy import technical_event
 from .production_app import ProductionDesktopApplication
 from .scan_queue import ScanQueue
