@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.0-qa4 — 2026-07-23
+
+### Escritura en Windows
+
+- Se corrigió la estructura `INPUT` usada por `SendInput` en Windows x64/x86.
+- El portapapeles Win32 ahora declara correctamente manejadores y punteros de 64 bits.
+- Los controles modernos no verificables, como el Bloc de notas de Windows 11, usan entrada Unicode directa.
+- Los controles clásicos y WinForms conservan el pegado rápido, con fallback Unicode si falla.
+- Una configuración con reemplazo explícito puede usar `Ctrl+A` sobre la ventana exacta aunque el control sea XAML.
+- Los fallos de la cola actualizan el último error visible en el panel DMS.
+
 ## 4.0.0-qa3 — 2026-07-23
 
 ### Calibración, interfaz e instalador
