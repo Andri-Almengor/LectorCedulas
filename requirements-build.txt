@@ -1,0 +1,3 @@
+-r requirements.lock
+PyInstaller==6.17.0
+cyclonedx-bom==7.2.1
