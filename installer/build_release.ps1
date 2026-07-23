@@ -6,7 +6,6 @@ $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path "$PSScriptRoot\..").Path
 Set-Location $Root
 
-python -m pip install --requirement requirements.lock
 python -m pip install --requirement requirements-dev.txt
 python -m pytest -q
 python -m compileall -q dashboard.py template tools tests
