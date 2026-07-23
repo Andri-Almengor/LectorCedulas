@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.0.0-qa3 — 2026-07-23
+
+### Calibración, interfaz e instalador
+
+- El inicio muestra una calibración guiada y selecciona primero el último COM guardado.
+- Cada puerto se prueba durante 10 segundos; si ninguno responde se permite reintentar o cerrar.
+- La lectura usada para calibrar solo valida el puerto y nunca se envía al formulario.
+- Se agregó un panel de control con la misma paleta oscura y roja del dashboard.
+- El instalador ofrece accesos directos de escritorio e inicio automático con Windows, ambos seleccionados por defecto.
+- El SBOM usa `cyclonedx-py` o `python -m cyclonedx_py` y no bloquea el Setup si falla.
+- El catálogo empaquetado se valida contra los siete formatos de cédula/documento esperados.
+- GitHub Actions separa pruebas y Ruff y publica un reporte de lint descargable.
+
 ## 4.0.0-qa2 — 2026-07-22
 
 ### Licencias y dashboard
