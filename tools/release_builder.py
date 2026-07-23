@@ -18,7 +18,7 @@ if str(TEMPLATE) not in sys.path:
 
 from assets.runtime.hardened.atomic_io import write_json_atomic  # noqa: E402
 from assets.runtime.hardened.license_service import (  # noqa: E402
-    generate_keypair,
+    ensure_keypair,
     issue_license,
     parse_utc,
 )
@@ -47,11 +47,10 @@ def _ensure_keys(name: str) -> tuple[Path, Path]:
     secret = _secret_root()
     private = secret / f"{name}_private_key.pem"
     public = secret / f"{name}_public_key.pem"
-    if not private.exists():
-        generate_keypair(private, public)
-    elif not public.exists():
-        raise BuildError(f"Falta clave pública para {name}; no se regeneró la privada existente")
-    return private, public
+    try:
+        return ensure_keypair(private, public)
+    except Exception as exc:
+        raise BuildError(f"No se pudo preparar el par de claves {name}: {exc}") from exc
 
 
 def _run(
@@ -133,6 +132,12 @@ def _build_exe(
         "assets.runtime.hardened.reader_calibration",
         "--hidden-import",
         "assets.runtime.hardened.windows_control",
+        "--hidden-import",
+        "assets.runtime.hardened.process_supervisor",
+        "--hidden-import",
+        "assets.runtime.hardened.safe_clipboard",
+        "--hidden-import",
+        "assets.runtime.hardened.scan_quality",
     ]
     if not console:
         command.append("--noconsole")
@@ -152,7 +157,16 @@ def _copy_template(work: Path) -> None:
         TEMPLATE,
         work,
         dirs_exist_ok=True,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            "*.pyo",
+            "*.spec",
+            "build",
+            "dist",
+            "logs",
+            "diagnosticos",
+        ),
     )
 
 
@@ -166,7 +180,9 @@ def _client_claims(client: dict[str, Any]) -> tuple[str, str, datetime, datetime
     expires_raw = license_data.get("expires_at_utc")
     if not client_id or not expires_raw:
         raise BuildError("Cliente/licencia incompleto")
-    if not all(char.isalnum() or char in "-_" for char in client_id) or len(client_id) > 64:
+    if not all(char.isalnum() or char in "-_" for char in client_id) or len(
+        client_id
+    ) > 64:
         raise BuildError("client_id contiene caracteres no permitidos")
     issued = (
         parse_utc(issued_raw, "issued_at_utc")
@@ -263,7 +279,7 @@ AppId={{{{DMS-LECTOR-CEDULAS}}}}
 AppName={{#MyAppName}}
 AppVersion={{#MyAppVersion}}
 AppPublisher={{#MyAppPublisher}}
-DefaultDirName={{autopf}}\\DMS\\LectorCedulasDMS
+DefaultDirName={{autopf}}\DMS\LectorCedulasDMS
 DefaultGroupName={{#MyAppName}}
 DisableProgramGroupPage=yes
 OutputDir="{out_dir}"
@@ -273,24 +289,31 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
+CloseApplications=yes
+RestartApplications=no
+SetupLogging=yes
+UsePreviousTasks=yes
 {icon_line}
-UninstallDisplayIcon={{app}}\\{{#MyAppExeName}}
+UninstallDisplayIcon={{app}}\{{#MyAppExeName}}
 
 [Tasks]
 Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; GroupDescription: "Accesos directos:"; Flags: checkedonce
 Name: "startup"; Description: "Iniciar el lector automáticamente con Windows"; GroupDescription: "Inicio automático:"; Flags: checkedonce
 
 [Files]
-Source: "{app_dir}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{app_dir}\*"; DestDir: "{{app}}"; Excludes: "configs\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{app_dir}\configs\formatos\*"; DestDir: "{{app}}\configs\formatos"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{app_dir}\configs\formularios\*"; DestDir: "{{app}}\configs\formularios"; Flags: onlyifdoesntexist recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{app_dir}\configs\sistema\*"; DestDir: "{{app}}\configs\sistema"; Flags: onlyifdoesntexist recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
-Name: "{{group}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; IconFilename: "{{app}}\\assets\\DMS_icono_circulo_i.ico"
-Name: "{{group}}\\Configurar lector"; Filename: "{{app}}\\crear_configuracion.exe"; IconFilename: "{{app}}\\assets\\DMS_icono_circulo_i.ico"
-Name: "{{autodesktop}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; Tasks: desktopicon; IconFilename: "{{app}}\\assets\\DMS_icono_circulo_i.ico"
-Name: "{{userstartup}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; Tasks: startup; IconFilename: "{{app}}\\assets\\DMS_icono_circulo_i.ico"
+Name: "{{group}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; IconFilename: "{{app}}\assets\DMS_icono_circulo_i.ico"
+Name: "{{group}}\Configurar lector"; Filename: "{{app}}\crear_configuracion.exe"; IconFilename: "{{app}}\assets\DMS_icono_circulo_i.ico"
+Name: "{{autodesktop}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; Tasks: desktopicon; IconFilename: "{{app}}\assets\DMS_icono_circulo_i.ico"
+Name: "{{userstartup}}\{{#MyAppName}}"; Filename: "{{app}}\{{#MyAppExeName}}"; Tasks: startup; IconFilename: "{{app}}\assets\DMS_icono_circulo_i.ico"
 
 [Run]
-Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "Ejecutar {{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+Filename: "{{app}}\{{#MyAppExeName}}"; Description: "Ejecutar {{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 """,
         encoding="utf-8",
     )
@@ -320,7 +343,13 @@ def _compile_inno(
     if result.returncode:
         combined = (result.stdout + result.stderr).casefold()
         if "endupdateresource failed" in combined and "110" in combined:
-            script = _write_inno(build_root, app_dir, out_dir, client_id, icon=False)
+            script = _write_inno(
+                build_root,
+                app_dir,
+                out_dir,
+                client_id,
+                icon=False,
+            )
             _run([iscc, str(script)], cwd=build_root, log=log)
         else:
             raise BuildError(
@@ -340,7 +369,14 @@ def _generate_sbom(work: Path, destination: Path, log: Path) -> bool:
 
     tool = shutil.which("cyclonedx-py")
     command = (
-        [tool, "environment", "--output-format", "JSON", "--output-file", str(destination)]
+        [
+            tool,
+            "environment",
+            "--output-format",
+            "JSON",
+            "--output-file",
+            str(destination),
+        ]
         if tool
         else [
             sys.executable,
@@ -453,6 +489,13 @@ def make_update_zip(version: str, out_dir: str) -> str:
     shutil.copy2(main_exe, payload / "LectorCedulasDMS.exe")
     shutil.copy2(config_exe, payload / "crear_configuracion.exe")
     shutil.copytree(work / "assets", payload / "assets", dirs_exist_ok=True)
+    formats_source = work / "configs" / "formatos"
+    if formats_source.is_dir():
+        shutil.copytree(
+            formats_source,
+            payload / "configs" / "formatos",
+            dirs_exist_ok=True,
+        )
     shutil.copy2(updater_exe, package / "DMSUpdater.exe")
     files = [
         path.relative_to(payload).as_posix()

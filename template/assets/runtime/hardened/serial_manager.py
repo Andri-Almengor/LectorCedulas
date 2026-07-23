@@ -43,6 +43,7 @@ class SerialMetrics:
     frames_accepted: int = 0
     frames_rejected: int = 0
     reconnects: int = 0
+    late_fragment_extensions: int = 0
     last_frame_ms: float = 0.0
 
 
@@ -60,11 +61,16 @@ class SerialManager:
         state_callback: Callable[[ReaderState, str], None] | None = None,
         baudrates: tuple[int, ...] = (9600,),
         read_timeout: float = 0.2,
-        idle_seconds: float = 0.18,
+        idle_seconds: float = 0.20,
+        settle_seconds: float = 0.20,
         frame_timeout: float = 4.0,
         max_bytes: int = 4096,
         min_bytes: int = 8,
     ):
+        if idle_seconds < 0.01 or settle_seconds < 0.0:
+            raise ValueError("Los tiempos de estabilización serial son inválidos")
+        if frame_timeout <= idle_seconds + settle_seconds:
+            raise ValueError("frame_timeout debe superar la ventana de estabilización")
         self.list_ports = list_ports
         self.open_port = open_port
         self.submit_frame = submit_frame
@@ -76,6 +82,7 @@ class SerialManager:
         self.baudrates = baudrates
         self.read_timeout = read_timeout
         self.idle_seconds = idle_seconds
+        self.settle_seconds = settle_seconds
         self.frame_timeout = frame_timeout
         self.max_bytes = max_bytes
         self.min_bytes = min_bytes
@@ -88,6 +95,7 @@ class SerialManager:
         self._active_serial: SerialPortLike | None = None
         self._lock = threading.RLock()
         self._confirmed_identities: set[tuple] = set()
+        self._pending_context: Any = None
 
     def _set_state(self, state: ReaderState, detail: str = "") -> None:
         self.state = state
@@ -98,20 +106,27 @@ class SerialManager:
         with self._lock:
             if self._thread and self._thread.is_alive():
                 return
+            if self.stop_event.is_set():
+                raise RuntimeError("No se puede reiniciar una instancia serial detenida")
             self._thread = threading.Thread(target=self._run, name="DMSSerialManager", daemon=True)
             self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, *, wait: bool = True, timeout: float = 2.0) -> None:
         self._set_state(ReaderState.STOPPING)
         self.stop_event.set()
         self.reconnect_event.set()
         with self._lock:
             serial_port = self._active_serial
+            worker = self._thread
         if serial_port:
             try:
                 serial_port.close()
             except Exception as exc:
                 self.logger(f"serial_close_error:stop:{type(exc).__name__}")
+        if wait and worker and worker is not threading.current_thread():
+            worker.join(max(0.0, timeout))
+            if worker.is_alive():
+                self.logger("serial_stop_timeout")
 
     def reconnect_now(self) -> None:
         self.reconnect_event.set()
@@ -158,21 +173,45 @@ class SerialManager:
     def _read_frame(self, serial_port: SerialPortLike) -> bytes:
         started = time.monotonic()
         last_data: float | None = None
+        quiet_started: float | None = None
         data = bytearray()
+        self._pending_context = None
+
         while not self.stop_event.is_set() and time.monotonic() - started < self.frame_timeout:
             if self.reconnect_event.is_set():
                 raise ConnectionError("reconexion_solicitada")
             waiting = int(serial_port.in_waiting or 0)
             if waiting:
-                chunk = serial_port.read(min(waiting, self.max_bytes - len(data)))
+                remaining = self.max_bytes - len(data)
+                if remaining <= 0:
+                    break
+                chunk = serial_port.read(min(waiting, remaining))
                 if chunk:
+                    if not data:
+                        try:
+                            self._pending_context = self.capture_context()
+                        except Exception as exc:
+                            self._pending_context = None
+                            self.logger(f"serial_context_capture_error:{type(exc).__name__}")
+                    elif quiet_started is not None:
+                        self.metrics.late_fragment_extensions += 1
+                        self.logger(
+                            f"serial_late_fragment:existing={len(data)}:added={len(chunk)}"
+                        )
                     data.extend(chunk)
                     self.metrics.bytes_received += len(chunk)
                     last_data = time.monotonic()
+                    quiet_started = None
                     if len(data) >= self.max_bytes:
                         break
-            elif data and last_data is not None and time.monotonic() - last_data >= self.idle_seconds:
-                break
+            elif data and last_data is not None:
+                now = time.monotonic()
+                if now - last_data >= self.idle_seconds:
+                    if quiet_started is None:
+                        quiet_started = now
+                    elif now - quiet_started >= self.settle_seconds:
+                        break
+                self.stop_event.wait(0.01)
             else:
                 self.stop_event.wait(0.01)
         return bytes(data)
@@ -196,10 +235,17 @@ class SerialManager:
 
     def _process_frame(self, raw: bytes, identity: PortIdentity) -> bool:
         self.metrics.frames_received += 1
+        context = self._pending_context
+        self._pending_context = None
         if len(raw) < self.min_bytes or len(raw) > self.max_bytes:
             self.confirm_rejected(raw, "length")
             return False
-        context = self.capture_context()
+        if context is None:
+            try:
+                context = self.capture_context()
+            except Exception as exc:
+                self.logger(f"serial_context_capture_error:late:{type(exc).__name__}")
+                context = None
         started = time.monotonic()
         submitted = bool(self.submit_frame(raw, context, identity))
         self.metrics.last_frame_ms = (time.monotonic() - started) * 1000
@@ -219,6 +265,7 @@ class SerialManager:
                 self._set_state(ReaderState.READING, identity.device)
                 raw = self._read_frame(serial_port)
                 if not raw:
+                    self._pending_context = None
                     self._set_state(ReaderState.READY, identity.device)
                     continue
                 self._set_state(ReaderState.PROCESSING, identity.device)
@@ -231,6 +278,7 @@ class SerialManager:
                 with self._lock:
                     self._active_serial = None
                 self.current_port = None
+                self._pending_context = None
 
     def _run(self) -> None:
         backoff = 0.5

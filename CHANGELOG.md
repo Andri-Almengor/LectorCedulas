@@ -1,5 +1,45 @@
 # Changelog
 
+## 4.0.0-qa7 — 2026-07-23
+
+### Integridad de cada lectura
+
+- La trama serial necesita una segunda ventana de silencio estable antes de cerrarse.
+- Los fragmentos tardíos recibidos durante la estabilización se anexan a la misma lectura.
+- La ventana objetivo se captura al llegar el primer bloque de la cédula, no al finalizar el frame.
+- El parsing se procesa en orden estricto para impedir que una consulta TSE adelante otra lectura.
+- Una compuerta semántica rechaza identificaciones truncadas, fechas imposibles y nombres incompletos antes de tocar el formulario.
+- La configuración activa define qué campos deben existir: el modo rápido permite solo cédula, mientras el modo completo exige sus datos configurados.
+
+### Escritura y cambios de configuración
+
+- Cambiar configuración ya no cancela una escritura iniciada; la transacción actual termina completa.
+- Los trabajos pendientes de la configuración anterior sí se descartan mediante una barrera de generación.
+- Una lectura conserva la generación activa al entrar al pipeline; si el modo cambia antes del enqueue, se rechaza y solicita reescanear.
+- `Ctrl+Alt+Esc` conserva la cancelación inmediata como acción de emergencia explícita.
+- El respaldo Unicode verifica la ventana exacta antes de cada carácter y después de cada campo.
+- El pegado por portapapeles valida nuevamente el objetivo antes y después de `Ctrl+V`.
+- Los fallos registran cuántos campos o caracteres llegaron a enviarse para facilitar el diagnóstico.
+
+### Concurrencia, cierre y actualización
+
+- La selección de configuración y la creación del trabajo forman una transición atómica.
+- El COM se confirma como válido solamente después de que la lectura entra realmente en la cola.
+- El cierre del gestor serial y de la cola espera a sus hilos para evitar instancias superpuestas.
+- El actualizador espera la desaparición real de los mutex del worker y del supervisor antes de reemplazar archivos.
+- Los updates preservan `licencia.key`, formularios, COM, favoritas y estado local; únicamente `configs/formatos` es administrado por DMS.
+- El ZIP de actualización incluye el catálogo oficial firmado para corregir formatos en instalaciones existentes.
+- Una reinstalación reemplaza el catálogo oficial, pero no sobrescribe formularios ni estado del cliente.
+- GitHub Actions agrega reportes JUnit y un build smoke de PyInstaller en Windows.
+
+### Licencias, dashboard y builds
+
+- La emisión rechaza IDs vacíos, fechas sin zona horaria y expiraciones no posteriores a la emisión antes de firmar.
+- Los pares Ed25519 se crean con escritura atómica y la clave pública puede reconstruirse desde la privada existente sin cambiar la identidad de firma.
+- El build real declara explícitamente supervisor, portapapeles seguro y compuerta de calidad para PyInstaller.
+- La copia de la plantilla excluye `build`, `dist`, logs, diagnósticos, specs y cachés.
+- El cuadro de generación del dashboard bloquea cierres accidentales mientras el hilo de build sigue activo.
+
 ## 4.0.0-qa6 — 2026-07-23
 
 ### Supervivencia del proceso

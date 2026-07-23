@@ -11,7 +11,14 @@ from assets.runtime.hardened.writer import ControlProbe, PROFILES
 
 
 class FakeWindows:
+    def __init__(self, fail_after=None):
+        self.calls = 0
+        self.fail_after = fail_after
+
     def validate_exact(self, target, require_foreground=True):
+        self.calls += 1
+        if self.fail_after is not None and self.calls > self.fail_after:
+            return False, "objetivo_no_esta_en_primer_plano"
         return True, "ok"
 
 
@@ -75,7 +82,7 @@ class FakeSerial:
         self.start_calls = 0
         self.reconnect_calls = 0
 
-    def stop(self):
+    def stop(self, **_kwargs):
         self.stop_calls += 1
 
     def start(self):
@@ -90,9 +97,9 @@ def _job():
     return SimpleNamespace(target=object())
 
 
-def _writer(probe, adapter):
+def _writer(probe, adapter, windows=None):
     writer = StressSafeFormWriter(
-        windows=FakeWindows(),
+        windows=windows or FakeWindows(),
         input_adapter=adapter,
         control_probe=probe,
     )
@@ -123,7 +130,7 @@ def test_modern_control_prefers_atomic_clipboard_paste():
     assert adapter.writes == []
 
 
-def test_clipboard_failure_uses_paced_unicode_fallback():
+def test_clipboard_failure_uses_guarded_unicode_fallback():
     adapter = FakeInput()
     writer = _writer(
         lambda _job: ControlProbe(False, class_name="XamlTextControl"),
@@ -140,8 +147,37 @@ def test_clipboard_failure_uses_paced_unicode_fallback():
     )
 
     assert result
-    assert adapter.writes[0][0] == "ANDRICK IVAN"
-    assert adapter.writes[0][1] >= 0.007
+    assert "".join(item[0] for item in adapter.writes) == "ANDRICK IVAN"
+    assert all(item[1] == 0.0 for item in adapter.writes)
+
+
+def test_unicode_fallback_stops_when_exact_target_loses_focus():
+    adapter = FakeInput()
+    windows = FakeWindows(fail_after=4)
+    logs = []
+    writer = StressSafeFormWriter(
+        windows=windows,
+        input_adapter=adapter,
+        control_probe=lambda _job: ControlProbe(
+            False,
+            class_name="XamlTextControl",
+        ),
+        logger=logs.append,
+    )
+    writer._sleep = lambda _seconds, _cancel: True
+
+    result = writer._paste(
+        "123456789",
+        _job(),
+        PROFILES["rapida"],
+        threading.Event(),
+        FakeClipboard(succeeds=False),
+        replace=False,
+    )
+
+    assert not result
+    assert 0 < len(adapter.writes) < 9
+    assert any("input_target_lost:sendinput_paced" in item for item in logs)
 
 
 def test_global_hotkey_dispatches_favorites_and_emergency():

@@ -101,9 +101,11 @@ def load_db() -> dict:
                 "client_id": cid,
                 "name": row.get("cliente") or cid,
                 "license": {
-                    "license_id": row.get("licencia") or f"LIC-{uuid.uuid4().hex[:12].upper()}",
+                    "license_id": row.get("licencia")
+                    or f"LIC-{uuid.uuid4().hex[:12].upper()}",
                     "issued_at_utc": iso_z(now_utc()),
-                    "expires_at_utc": row.get("expira") or iso_z(now_utc() + timedelta(days=1)),
+                    "expires_at_utc": row.get("expira")
+                    or iso_z(now_utc() + timedelta(days=1)),
                     "status": "active",
                 },
                 "build_history": [],
@@ -142,7 +144,13 @@ class ClientRow:
 
 
 class DurationDialog(tk.Toplevel):
-    def __init__(self, parent: tk.Misc, title: str, *, include_action: bool = False):
+    def __init__(
+        self,
+        parent: tk.Misc,
+        title: str,
+        *,
+        include_action: bool = False,
+    ):
         super().__init__(parent)
         self.result: tuple[str, dict[str, int]] | dict[str, int] | None = None
         self.title(title)
@@ -157,9 +165,12 @@ class DurationDialog(tk.Toplevel):
         self.action = tk.StringVar(value="renew")
         if include_action:
             ttk.Label(frame, text="Acción").grid(row=0, column=0, sticky="w")
-            ttk.Radiobutton(frame, text="Renovar desde hoy", variable=self.action, value="renew").grid(
-                row=1, column=0, columnspan=2, sticky="w"
-            )
+            ttk.Radiobutton(
+                frame,
+                text="Renovar desde hoy",
+                variable=self.action,
+                value="renew",
+            ).grid(row=1, column=0, columnspan=2, sticky="w")
             ttk.Radiobutton(
                 frame,
                 text="Extender desde la expiración",
@@ -178,28 +189,54 @@ class DurationDialog(tk.Toplevel):
             ("hours", "Horas", 87600),
         )
         for index, (key, label, maximum) in enumerate(labels):
-            ttk.Label(frame, text=label).grid(row=start_row, column=index, sticky="w", padx=(0, 8))
+            ttk.Label(frame, text=label).grid(
+                row=start_row,
+                column=index,
+                sticky="w",
+                padx=(0, 8),
+            )
             entry = tk.Spinbox(frame, from_=0, to=maximum, width=7)
-            entry.grid(row=start_row + 1, column=index, sticky="w", padx=(0, 8))
+            entry.grid(
+                row=start_row + 1,
+                column=index,
+                sticky="w",
+                padx=(0, 8),
+            )
             self.entries[key] = entry
         self.entries["years"].delete(0, "end")
         self.entries["years"].insert(0, "1")
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=start_row + 2, column=0, columnspan=4, sticky="e", pady=(16, 0))
-        ttk.Button(buttons, text="Cancelar", command=self.destroy).pack(side="right")
-        ttk.Button(buttons, text="Aceptar", style="Primary.TButton", command=self._accept).pack(
-            side="right", padx=8
+        buttons.grid(
+            row=start_row + 2,
+            column=0,
+            columnspan=4,
+            sticky="e",
+            pady=(16, 0),
         )
+        ttk.Button(buttons, text="Cancelar", command=self.destroy).pack(side="right")
+        ttk.Button(
+            buttons,
+            text="Aceptar",
+            style="Primary.TButton",
+            command=self._accept,
+        ).pack(side="right", padx=8)
 
     def _accept(self) -> None:
         try:
-            duration = {key: int(entry.get() or 0) for key, entry in self.entries.items()}
+            duration = {
+                key: int(entry.get() or 0)
+                for key, entry in self.entries.items()
+            }
             expiration_from_duration(duration, base=now_utc())
         except Exception as exc:
             messagebox.showerror("Duración inválida", str(exc), parent=self)
             return
-        self.result = (self.action.get(), duration) if self.include_action else duration
+        self.result = (
+            (self.action.get(), duration)
+            if self.include_action
+            else duration
+        )
         self.destroy()
 
 
@@ -210,15 +247,30 @@ class NewClientDialog(DurationDialog):
         for child in frame.grid_slaves():
             info = child.grid_info()
             child.grid_configure(row=int(info["row"]) + 2)
-        ttk.Label(frame, text="Nombre del cliente").grid(row=0, column=0, columnspan=4, sticky="w")
+        ttk.Label(frame, text="Nombre del cliente").grid(
+            row=0,
+            column=0,
+            columnspan=4,
+            sticky="w",
+        )
         self.name_entry = ttk.Entry(frame, width=48)
-        self.name_entry.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(2, 12))
+        self.name_entry.grid(
+            row=1,
+            column=0,
+            columnspan=4,
+            sticky="ew",
+            pady=(2, 12),
+        )
         self.name_entry.focus_set()
 
     def _accept(self) -> None:
         name = self.name_entry.get().strip()
         if not name:
-            messagebox.showwarning("Dato requerido", "Escribe el nombre del cliente.", parent=self)
+            messagebox.showwarning(
+                "Dato requerido",
+                "Escribe el nombre del cliente.",
+                parent=self,
+            )
             return
         super()._accept()
         if self.result is not None:
@@ -256,10 +308,23 @@ class Dashboard(tk.Tk):
         style.configure("TFrame", background=COLOR_BG)
         style.configure("TLabel", background=COLOR_BG, foreground=COLOR_TEXT)
         style.configure("TLabelframe", background=COLOR_BG, foreground=COLOR_TEXT)
-        style.configure("TLabelframe.Label", background=COLOR_BG, foreground=COLOR_TEXT)
+        style.configure(
+            "TLabelframe.Label",
+            background=COLOR_BG,
+            foreground=COLOR_TEXT,
+        )
         style.configure("TEntry", fieldbackground=COLOR_INPUT, foreground=COLOR_TEXT)
-        style.configure("TCombobox", fieldbackground=COLOR_INPUT, foreground=COLOR_TEXT)
-        style.configure("Primary.TButton", background=COLOR_ACCENT, foreground="white", padding=8)
+        style.configure(
+            "TCombobox",
+            fieldbackground=COLOR_INPUT,
+            foreground=COLOR_TEXT,
+        )
+        style.configure(
+            "Primary.TButton",
+            background=COLOR_ACCENT,
+            foreground="white",
+            padding=8,
+        )
         style.map("Primary.TButton", background=[("active", "#c62828")])
         style.configure(
             "Treeview",
@@ -268,16 +333,28 @@ class Dashboard(tk.Tk):
             foreground=COLOR_TEXT,
             rowheight=28,
         )
-        style.configure("Treeview.Heading", background=COLOR_PANEL, foreground=COLOR_TEXT)
+        style.configure(
+            "Treeview.Heading",
+            background=COLOR_PANEL,
+            foreground=COLOR_TEXT,
+        )
         style.map("Treeview", background=[("selected", "#3b0f0f")])
 
     def _build_ui(self) -> None:
         root = ttk.Frame(self, padding=16)
         root.pack(fill="both", expand=True)
-        ttk.Label(root, text="DMS Lector de Cédulas", font=("Segoe UI", 18, "bold")).pack(anchor="w")
-        ttk.Label(root, text=f"Dashboard seguro • v{APP_VERSION} • licencias Ed25519 automáticas").pack(
-            anchor="w", pady=(2, 12)
-        )
+        ttk.Label(
+            root,
+            text="DMS Lector de Cédulas",
+            font=("Segoe UI", 18, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            root,
+            text=(
+                f"Dashboard seguro • v{APP_VERSION} • "
+                "licencias Ed25519 automáticas"
+            ),
+        ).pack(anchor="w", pady=(2, 12))
 
         notebook = ttk.Notebook(root)
         notebook.pack(fill="both", expand=True)
@@ -291,20 +368,43 @@ class Dashboard(tk.Tk):
     def _build_clients_tab(self, tab: ttk.Frame) -> None:
         toolbar = ttk.Frame(tab)
         toolbar.pack(fill="x", pady=(0, 10))
-        ttk.Button(toolbar, text="➕ Nuevo cliente", style="Primary.TButton", command=self.create_client).pack(
-            side="left"
-        )
-        ttk.Button(toolbar, text="♻️ Renovar/Extender", command=self.renew_license).pack(side="left", padx=8)
-        ttk.Button(toolbar, text="🔐 Exportar licencia", command=self.export_license).pack(side="left")
+        ttk.Button(
+            toolbar,
+            text="➕ Nuevo cliente",
+            style="Primary.TButton",
+            command=self.create_client,
+        ).pack(side="left")
+        ttk.Button(
+            toolbar,
+            text="♻️ Renovar/Extender",
+            command=self.renew_license,
+        ).pack(side="left", padx=8)
+        ttk.Button(
+            toolbar,
+            text="🔐 Exportar licencia",
+            command=self.export_license,
+        ).pack(side="left")
         ttk.Button(
             toolbar,
             text="📦 Generar instalador",
             style="Primary.TButton",
             command=self.generate_installer,
         ).pack(side="right")
-        ttk.Button(toolbar, text="🗑 Eliminar", command=self.delete_client).pack(side="right", padx=8)
+        ttk.Button(
+            toolbar,
+            text="🗑 Eliminar",
+            command=self.delete_client,
+        ).pack(side="right", padx=8)
 
-        columns = ("client_id", "name", "license_id", "expires", "status", "days", "path")
+        columns = (
+            "client_id",
+            "name",
+            "license_id",
+            "expires",
+            "status",
+            "days",
+            "path",
+        )
         self.tree = ttk.Treeview(tab, columns=columns, show="headings")
         headings = {
             "client_id": "Client ID",
@@ -326,26 +426,43 @@ class Dashboard(tk.Tk):
         }
         for key in columns:
             self.tree.heading(key, text=headings[key])
-            self.tree.column(key, width=widths[key], anchor="e" if key == "days" else "w")
+            self.tree.column(
+                key,
+                width=widths[key],
+                anchor="e" if key == "days" else "w",
+            )
         scrollbar = ttk.Scrollbar(tab, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
     def _build_updates_tab(self, tab: ttk.Frame) -> None:
-        ttk.Label(tab, text="Paquete de actualización firmado", font=("Segoe UI", 12, "bold")).pack(
-            anchor="w"
-        )
-        ttk.Label(tab, text="La actualización preserva licencia.key y configs del cliente.").pack(
-            anchor="w", pady=(4, 14)
-        )
-        ttk.Button(tab, text="Generar update", style="Primary.TButton", command=self.generate_update).pack(
-            anchor="w"
-        )
+        ttk.Label(
+            tab,
+            text="Paquete de actualización firmado",
+            font=("Segoe UI", 12, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            tab,
+            text=(
+                "Preserva licencia, formularios, COM y favoritas; "
+                "actualiza el catálogo oficial de formatos."
+            ),
+        ).pack(anchor="w", pady=(4, 14))
+        ttk.Button(
+            tab,
+            text="Generar update",
+            style="Primary.TButton",
+            command=self.generate_update,
+        ).pack(anchor="w")
 
     def selected_client_id(self) -> str | None:
         selection = self.tree.selection()
-        return str(self.tree.item(selection[0], "values")[0]) if selection else None
+        return (
+            str(self.tree.item(selection[0], "values")[0])
+            if selection
+            else None
+        )
 
     def refresh_table(self) -> None:
         for item in self.tree.get_children():
@@ -399,7 +516,9 @@ class Dashboard(tk.Tk):
             "license": {
                 "license_id": f"LIC-{uuid.uuid4().hex[:12].upper()}",
                 "issued_at_utc": iso_z(issued),
-                "expires_at_utc": iso_z(expiration_from_duration(duration, base=issued)),
+                "expires_at_utc": iso_z(
+                    expiration_from_duration(duration, base=issued)
+                ),
                 "status": "active",
                 "duration": duration,
                 "actions": [],
@@ -435,12 +554,20 @@ class Dashboard(tk.Tk):
         license_data = client.setdefault("license", {})
         now = now_utc()
         try:
-            current_expiration = parse_dt(str(license_data.get("expires_at_utc") or ""))
+            current_expiration = parse_dt(
+                str(license_data.get("expires_at_utc") or "")
+            )
         except Exception:
             current_expiration = now
-        base = current_expiration if action == "extend" and current_expiration > now else now
+        base = (
+            current_expiration
+            if action == "extend" and current_expiration > now
+            else now
+        )
         license_data["issued_at_utc"] = iso_z(now)
-        license_data["expires_at_utc"] = iso_z(expiration_from_duration(duration, base=base))
+        license_data["expires_at_utc"] = iso_z(
+            expiration_from_duration(duration, base=base)
+        )
         license_data["status"] = "active"
         license_data["duration"] = duration
         license_data.setdefault("actions", []).append(
@@ -466,17 +593,25 @@ class Dashboard(tk.Tk):
         if not cid:
             messagebox.showinfo("Selecciona", "Selecciona un cliente primero.")
             return
-        destination = filedialog.askdirectory(title="Exportar licencia y clave pública")
+        destination = filedialog.askdirectory(
+            title="Exportar licencia y clave pública"
+        )
         if not destination:
             return
         try:
-            bundle = export_client_license_bundle(self.db[cid], destination=destination)
+            bundle = export_client_license_bundle(
+                self.db[cid],
+                destination=destination,
+            )
         except Exception as exc:
             messagebox.showerror("Error al exportar", str(exc))
             return
         messagebox.showinfo(
             "Licencia exportada",
-            f"Licencia:\n{bundle['license_path']}\n\nClave pública:\n{bundle['public_key_path']}",
+            (
+                f"Licencia:\n{bundle['license_path']}\n\n"
+                f"Clave pública:\n{bundle['public_key_path']}"
+            ),
         )
 
     def delete_client(self) -> None:
@@ -512,12 +647,19 @@ class Dashboard(tk.Tk):
             self._run_long_task(
                 "Generando actualización",
                 lambda: make_update_zip(VERSION, destination),
-                lambda path: messagebox.showinfo("Actualización generada", path),
+                lambda path: messagebox.showinfo(
+                    "Actualización generada",
+                    path,
+                ),
             )
 
     def _build_done(self, cid: str, path: str, kind: str) -> None:
         self.db[cid].setdefault("build_history", []).append(
-            {"built_at_utc": iso_z(now_utc()), "artifact": path, "type": kind}
+            {
+                "built_at_utc": iso_z(now_utc()),
+                "artifact": path,
+                "type": kind,
+            }
         )
         save_db(self.db)
         messagebox.showinfo("Instalador generado", path)
@@ -526,25 +668,65 @@ class Dashboard(tk.Tk):
         window = tk.Toplevel(self)
         window.title(title)
         window.transient(self)
+        window.resizable(False, False)
         window.grab_set()
-        ttk.Label(window, text=f"{title}. No cierres esta ventana.", padding=20).pack()
+        ttk.Label(
+            window,
+            text=f"{title}. Espera a que finalice el proceso.",
+            padding=(20, 20, 20, 10),
+        ).pack()
+        progress = ttk.Progressbar(
+            window,
+            mode="indeterminate",
+            length=320,
+        )
+        progress.pack(padx=20, pady=(0, 20))
+        progress.start(12)
+
+        def blocked_close() -> None:
+            messagebox.showwarning(
+                "Proceso en ejecución",
+                "Espera a que termine la generación antes de cerrar el dashboard.",
+                parent=window,
+            )
+
+        window.protocol("WM_DELETE_WINDOW", blocked_close)
+        self.protocol("WM_DELETE_WINDOW", blocked_close)
+
+        def finish_window() -> None:
+            progress.stop()
+            try:
+                window.grab_release()
+            except tk.TclError:
+                pass
+            try:
+                if window.winfo_exists():
+                    window.destroy()
+            except tk.TclError:
+                pass
+            self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+        def show_error(message: str) -> None:
+            finish_window()
+            messagebox.showerror(title, message, parent=self)
+
+        def show_result(result) -> None:
+            finish_window()
+            done(result)
 
         def worker() -> None:
             try:
                 result = task()
             except Exception as exc:
-                error_message = str(exc)
-                self.after(
-                    0,
-                    lambda message=error_message: (
-                        window.destroy(),
-                        messagebox.showerror(title, message),
-                    ),
-                )
+                self.after(0, show_error, str(exc))
                 return
-            self.after(0, lambda: (window.destroy(), done(result)))
+            self.after(0, show_result, result)
 
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(
+            target=worker,
+            name="DMSDashboardBuild",
+            daemon=True,
+        ).start()
 
 
 def main() -> None:

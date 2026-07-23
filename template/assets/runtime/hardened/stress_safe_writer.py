@@ -60,6 +60,7 @@ class StressSafeFormWriter(ReliableFormWriter):
     def _clipboard_paste(
         self,
         value: str,
+        job: ScanJob,
         profile: WriteProfile,
         cancel_event,
         clipboard: ClipboardManager,
@@ -72,6 +73,10 @@ class StressSafeFormWriter(ReliableFormWriter):
                 return False
             if not self._sleep(max(profile.clipboard_delay, 0.035), cancel_event):
                 return False
+            valid, reason = self._validate_target(job)
+            if not valid:
+                self.logger(f"input_target_invalid:before_paste:{reason}")
+                return False
             self.input.hotkey("ctrl", "v")
             settle = self._PASTE_SETTLE_SECONDS.get(
                 self._profile_name(profile),
@@ -81,7 +86,13 @@ class StressSafeFormWriter(ReliableFormWriter):
                 f"input_delivery:clipboard_atomic:class={class_name or 'unknown'}:"
                 f"settle_ms={settle * 1000:.0f}"
             )
-            return self._sleep(settle, cancel_event)
+            if not self._sleep(settle, cancel_event):
+                return False
+            valid, reason = self._validate_target(job)
+            if not valid:
+                self.logger(f"input_target_lost:after_paste:{reason}")
+                return False
+            return True
         except Exception as exc:
             self.logger(f"input_delivery_error:clipboard_atomic:{type(exc).__name__}")
             return False
@@ -89,20 +100,44 @@ class StressSafeFormWriter(ReliableFormWriter):
     def _direct_unicode(
         self,
         value: str,
+        job: ScanJob,
         profile: WriteProfile,
         cancel_event,
         class_name: str,
     ) -> bool:
+        delay = max(0.007, min(profile.tab_delay / 2, 0.025))
+        sent = 0
         try:
-            interval = max(0.007, profile.tab_delay / 2)
-            self.input.write(value, interval=interval)
+            for character in str(value):
+                if cancel_event.is_set():
+                    self.logger(f"input_delivery_cancelled:sendinput_paced:sent={sent}")
+                    return False
+                valid, reason = self._validate_target(job)
+                if not valid:
+                    self.logger(
+                        f"input_target_lost:sendinput_paced:{reason}:sent={sent}"
+                    )
+                    return False
+                self.input.write(character, interval=0.0)
+                sent += 1
+                if cancel_event.wait(delay):
+                    self.logger(f"input_delivery_cancelled:sendinput_paced:sent={sent}")
+                    return False
             self.logger(
                 f"input_delivery:sendinput_paced:class={class_name or 'unknown'}:"
-                f"interval_ms={interval * 1000:.1f}"
+                f"interval_ms={delay * 1000:.1f}:sent={sent}"
             )
-            return self._sleep(max(profile.post_paste_delay, 0.06), cancel_event)
+            if not self._sleep(max(profile.post_paste_delay, 0.06), cancel_event):
+                return False
+            valid, reason = self._validate_target(job)
+            if not valid:
+                self.logger(f"input_target_lost:after_sendinput:{reason}:sent={sent}")
+                return False
+            return True
         except Exception as exc:
-            self.logger(f"input_delivery_error:sendinput_paced:{type(exc).__name__}")
+            self.logger(
+                f"input_delivery_error:sendinput_paced:{type(exc).__name__}:sent={sent}"
+            )
             return False
 
     def _paste(
@@ -130,12 +165,17 @@ class StressSafeFormWriter(ReliableFormWriter):
             self.input.hotkey("ctrl", "a")
             if not self._sleep(0.035, cancel_event):
                 return False
+            valid, reason = self._validate_target(job)
+            if not valid:
+                self.logger(f"input_target_lost:after_select_all:{reason}")
+                return False
             self.input.press("backspace")
             if not self._sleep(0.035, cancel_event):
                 return False
 
         if self._clipboard_paste(
             value,
+            job,
             profile,
             cancel_event,
             clipboard,
@@ -145,6 +185,7 @@ class StressSafeFormWriter(ReliableFormWriter):
 
         return self._direct_unicode(
             value,
+            job,
             profile,
             cancel_event,
             probe.class_name,

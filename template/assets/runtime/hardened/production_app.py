@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
+from .config_service import ConfigurationError
 from .desktop_app import DesktopApplication
 from .global_hotkeys import GlobalHotkeyService
-from .models import ReaderState
+from .models import JobState, ReaderState, ScanJob, utc_now
 from .privacy import technical_event
 from .reliable_app import ReliableDesktopApplication
 from .runtime_state import mark_manual_exit
+from .scan_quality import validate_for_configuration, validate_parser_data
+from .scan_queue import QueueFullError
 from .stress_safe_writer import StressSafeFormWriter
 from .version import PRODUCT_NAME, VERSION
 from .windows_control import WindowsControlProbe
@@ -25,7 +31,18 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
         self._last_reader_state_at = time.monotonic()
         self._last_watchdog_reconnect_at = 0.0
         self._recovery_mode = bool(recovery_mode)
+        self._configuration_transition_lock = threading.RLock()
         super().__init__(root_dir=root_dir)
+
+        # Una sola tubería de parsing conserva el orden físico de los escaneos.
+        old_pool = self._parser_pool
+        self._parser_pool = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="DMSParserOrdered",
+        )
+        old_pool.shutdown(wait=False, cancel_futures=True)
+        self._processing_slots = threading.BoundedSemaphore(16)
+
         self.writer = StressSafeFormWriter(
             windows=self.windows,
             control_probe=WindowsControlProbe(self.windows),
@@ -54,6 +71,256 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
         self._last_reader_state_at = time.monotonic()
         super()._state_changed(state, detail)
 
+    def _submit_serial_frame(self, raw, target, identity) -> bool:
+        if not self._processing_slots.acquire(blocking=False):
+            self.last_error = "Procesamiento saturado"
+            self._notify(
+                "Procesamiento ocupado",
+                "La lectura no fue aceptada; espere y vuelva a escanear",
+            )
+            self._log(technical_event("parser_backpressure"))
+            return False
+
+        # El snapshot se toma cuando el frame entra al pipeline, no cuando termina
+        # una consulta de red o cuando finalmente llega a la cola de escritura.
+        with self._configuration_transition_lock:
+            try:
+                captured_snapshot = self.config.load_active()
+            except ConfigurationError:
+                captured_snapshot = None
+        try:
+            self._parser_pool.submit(
+                self._process_scan_async,
+                raw,
+                target,
+                identity,
+                captured_snapshot,
+            )
+            return True
+        except Exception as exc:
+            self._processing_slots.release()
+            self.last_error = type(exc).__name__
+            self._log(
+                technical_event(
+                    "parser_submit_failed",
+                    error_type=type(exc).__name__,
+                )
+            )
+            return False
+
+    def _enqueue_validated_scan(self, raw, data, target, snapshot) -> bool:
+        if self._is_duplicate(raw):
+            self._log(technical_event("scan_duplicate_ignored"))
+            return False
+        if target is None:
+            self.last_error = "No había formulario externo activo al iniciar la lectura"
+            self._notify(
+                "Formulario no detectado",
+                "Active el formulario y vuelva a escanear",
+            )
+            return False
+        valid, reason = self.windows.validate_exact(target)
+        if not valid:
+            self.last_error = reason
+            self._notify(
+                "Formulario incorrecto",
+                "La ventana objetivo se cerró o cambió",
+            )
+            return False
+
+        job = ScanJob(
+            sequence_id=next(self.sequence),
+            created_at_utc=utc_now(),
+            raw_sha256=hashlib.sha256(raw).hexdigest(),
+            data=dict(data),
+            configuration_id=snapshot.configuration_id,
+            configuration_name=snapshot.name,
+            configuration_version=snapshot.schema_version,
+            configuration_generation=snapshot.generation,
+            write_profile=snapshot.profile,
+            target=target,
+            fields=snapshot.fields,
+            final_action=snapshot.final_action,
+            state=JobState.QUEUED,
+        )
+        try:
+            self.queue.submit(job)
+        except QueueFullError:
+            self.last_error = "Cola llena"
+            self._notify(
+                "Cola llena",
+                "La lectura no fue aceptada; espere y vuelva a escanear",
+            )
+            return False
+
+        self.last_success_utc = utc_now().strftime("%Y-%m-%d %H:%M:%SZ")
+        self._log(
+            technical_event(
+                "scan_accepted",
+                sequence_id=job.sequence_id,
+                configuration_id=job.configuration_id,
+                configuration_generation=job.configuration_generation,
+                target_hwnd=target.hwnd,
+                target_pid=target.pid,
+                queue_size=self.queue.status().queued,
+            )
+        )
+        return True
+
+    def _process_scan_async(self, raw, target, identity, captured_snapshot) -> None:
+        try:
+            try:
+                result = self.parsers.parse(raw)
+            except Exception as exc:
+                self.last_error = type(exc).__name__
+                self.serial.confirm_rejected(raw, "parser_error")
+                self._log(
+                    technical_event(
+                        "parser_error",
+                        error_type=type(exc).__name__,
+                    )
+                )
+                return
+
+            if not result.recognized:
+                self.serial.confirm_rejected(raw, "format_not_recognized")
+                return
+
+            data = self.tse.enrich(result.data)
+            parser_quality = validate_parser_data(data, result.parser_id)
+            if not parser_quality.accepted:
+                self.last_error = f"Lectura incompleta: {parser_quality.reason}"
+                self.serial.confirm_rejected(
+                    raw,
+                    f"semantic_quality:{parser_quality.reason}",
+                )
+                self._notify(
+                    "Lectura incompleta",
+                    "No se modificó el formulario. Vuelva a escanear la cédula.",
+                )
+                self._log(
+                    technical_event(
+                        "scan_semantic_rejected",
+                        parser_id=result.parser_id,
+                        reason=parser_quality.reason,
+                    )
+                )
+                return
+
+            if captured_snapshot is None:
+                self.last_error = "Configuración inválida al recibir la lectura"
+                self.serial.confirm_rejected(raw, "configuration_invalid")
+                self._notify(
+                    "Configuración inválida",
+                    "Corrija o seleccione una configuración y vuelva a escanear.",
+                )
+                self._log(technical_event("configuration_invalid_at_frame_submit"))
+                return
+
+            # Validación y enqueue forman una sola transición respecto al atajo.
+            with self._configuration_transition_lock:
+                try:
+                    current_snapshot = self.config.load_active()
+                except ConfigurationError as exc:
+                    self.last_error = str(exc)
+                    self.serial.confirm_rejected(raw, "configuration_invalid")
+                    self._notify(
+                        "Configuración inválida",
+                        "Corrija o seleccione una configuración antes de escanear.",
+                    )
+                    self._log(
+                        technical_event(
+                            "configuration_invalid_before_queue",
+                            error_type=type(exc).__name__,
+                        )
+                    )
+                    return
+
+                if current_snapshot.generation != captured_snapshot.generation:
+                    self.last_error = "La configuración cambió durante la lectura"
+                    self.serial.confirm_rejected(
+                        raw,
+                        "configuration_changed_during_scan",
+                    )
+                    self._notify(
+                        "Configuración cambiada",
+                        "La lectura no se escribió. Vuelva a escanear con el modo actual.",
+                    )
+                    self._log(
+                        technical_event(
+                            "scan_configuration_generation_rejected",
+                            captured_generation=captured_snapshot.generation,
+                            current_generation=current_snapshot.generation,
+                        )
+                    )
+                    return
+
+                configuration_quality = validate_for_configuration(
+                    data,
+                    captured_snapshot.fields,
+                )
+                if not configuration_quality.accepted:
+                    self.last_error = (
+                        f"Datos insuficientes: {configuration_quality.reason}"
+                    )
+                    self.serial.confirm_rejected(
+                        raw,
+                        f"configuration_quality:{configuration_quality.reason}",
+                    )
+                    self._notify(
+                        "Datos insuficientes",
+                        "La configuración activa requiere más datos. No se escribió nada.",
+                    )
+                    self._log(
+                        technical_event(
+                            "scan_configuration_rejected",
+                            parser_id=result.parser_id,
+                            configuration_id=captured_snapshot.configuration_id,
+                            configuration_generation=captured_snapshot.generation,
+                            reason=configuration_quality.reason,
+                        )
+                    )
+                    return
+
+                if self._enqueue_validated_scan(
+                    raw,
+                    data,
+                    target,
+                    captured_snapshot,
+                ):
+                    self.serial.confirm_accepted(identity)
+        finally:
+            self._processing_slots.release()
+
+    def _change_configuration(self, name: str) -> None:
+        with self._configuration_transition_lock:
+            generation = self.config.set_active(name)
+            removed = self.queue.cancel_for_configuration_change(generation)
+        self._notify("Configuración cambiada", Path(name).stem)
+        self._log(
+            technical_event(
+                "configuration_changed",
+                configuration_generation=generation,
+                pending_cancelled=removed,
+            )
+        )
+
+    def _toggle_favorites(self, icon=None, item=None) -> None:
+        try:
+            with self._configuration_transition_lock:
+                target, generation = self.config.toggle_favorite()
+                removed = self.queue.cancel_for_configuration_change(generation)
+            self._notify("Configuración cambiada", Path(target).stem)
+            self._log(
+                technical_event(
+                    "configuration_favorite_toggled",
+                    configuration_generation=generation,
+                    pending_cancelled=removed,
+                )
+            )
+        except ConfigurationError as exc:
+            self._notify("Favoritas no configuradas", str(exc))
+
     def _emergency_hotkey_loop(self) -> None:
         def cancel_current() -> None:
             if self.queue.cancel_current("tecla_emergencia"):
@@ -73,7 +340,7 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
         try:
             old_serial = self.serial
             try:
-                old_serial.stop()
+                old_serial.stop(wait=True, timeout=2.5)
             except Exception as exc:
                 self._log(
                     technical_event(

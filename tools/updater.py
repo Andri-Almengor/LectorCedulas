@@ -1,33 +1,120 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+from ctypes import wintypes
 from pathlib import Path
 
 from assets.runtime.hardened.atomic_io import read_json, write_json_atomic
-from assets.runtime.hardened.instance_control import signal_running_instance
+from assets.runtime.hardened.instance_control import MUTEX_NAME, signal_running_instance
 from assets.runtime.hardened.privacy import build_logger, technical_event
 from assets.runtime.hardened.runtime_state import (
+    SUPERVISOR_MUTEX_NAME,
     resume_automatic_restart,
     suspend_automatic_restart,
 )
-from assets.runtime.hardened.update_manifest import ManifestError, sha256_file, verify_manifest
+from assets.runtime.hardened.update_manifest import (
+    ManifestError,
+    sha256_file,
+    verify_manifest,
+)
 from assets.runtime.hardened.version import VERSION
 
-PRESERVED_ROOT_NAMES = {"licencia.key", "configs"}
 EXECUTABLE_NAME = "LectorCedulasDMS.exe"
+_SYNCHRONIZE = 0x00100000
+_PROTECTED_EXACT_PATHS = {("licencia.key",)}
+_PROTECTED_CONFIG_PREFIXES = {
+    ("configs", "formularios"),
+    ("configs", "sistema"),
+}
+_MANAGED_CONFIG_PREFIX = ("configs", "formatos")
 
 
 class UpdateError(RuntimeError):
     pass
 
 
-def _wait_for_unlock(path: Path, timeout: float = 15.0) -> bool:
+def _path_parts(value: str) -> tuple[str, ...]:
+    return tuple(part.casefold() for part in Path(value).parts)
+
+
+def _starts_with(parts: tuple[str, ...], prefix: tuple[str, ...]) -> bool:
+    return len(parts) >= len(prefix) and parts[: len(prefix)] == prefix
+
+
+def _validate_update_target(value: str) -> None:
+    """Protege datos del cliente y permite solo el catálogo administrado.
+
+    El manifest ya garantiza rutas relativas seguras. Esta segunda barrera define
+    qué rutas firmadas puede reemplazar el actualizador: licencia, formularios y
+    estado local nunca se tocan; dentro de ``configs`` únicamente se administra
+    el catálogo oficial ``formatos``.
+    """
+    parts = _path_parts(value)
+    if parts in _PROTECTED_EXACT_PATHS:
+        raise UpdateError(f"El manifest intenta reemplazar datos preservados: {value}")
+    if any(_starts_with(parts, prefix) for prefix in _PROTECTED_CONFIG_PREFIXES):
+        raise UpdateError(f"El manifest intenta reemplazar datos preservados: {value}")
+    if parts and parts[0] == "configs" and not _starts_with(
+        parts,
+        _MANAGED_CONFIG_PREFIX,
+    ):
+        raise UpdateError(f"Ruta de configuración no administrada: {value}")
+
+
+def _mutex_api():
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenMutexW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.OpenMutexW.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    return kernel32
+
+
+def _named_mutex_exists(name: str) -> bool:
+    if os.name != "nt":
+        return False
+    kernel32 = _mutex_api()
+    handle = kernel32.OpenMutexW(_SYNCHRONIZE, False, name)
+    if not handle:
+        return False
+    kernel32.CloseHandle(handle)
+    return True
+
+
+def _wait_for_named_mutex_release(name: str, timeout: float) -> bool:
+    """Espera hasta que ningún proceso mantenga abierto el mutex nombrado.
+
+    Los mutex de instancia se crean sin propiedad inicial; por eso esperar con
+    WaitForSingleObject no demostraría que el proceso terminó. La señal correcta
+    es que OpenMutexW deje de encontrar el objeto cuando se cierre el último handle.
+    """
+    if os.name != "nt":
+        return True
+    deadline = time.monotonic() + max(0.0, timeout)
+    while time.monotonic() < deadline:
+        if not _named_mutex_exists(name):
+            return True
+        time.sleep(0.05)
+    return not _named_mutex_exists(name)
+
+
+def _wait_for_application_exit(timeout: float = 20.0) -> bool:
+    deadline = time.monotonic() + timeout
+    for name in (MUTEX_NAME, SUPERVISOR_MUTEX_NAME):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not _wait_for_named_mutex_release(name, remaining):
+            return False
+    return True
+
+
+def _wait_for_unlock(path: Path, timeout: float = 5.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -53,6 +140,7 @@ def _restart_application(executable: Path, install_dir: Path) -> None:
 
 def _verify_payload(payload_root: Path, files) -> None:
     for entry in files:
+        _validate_update_target(entry.path)
         path = payload_root / Path(entry.path)
         if not path.is_file():
             raise UpdateError(f"Falta archivo del update: {entry.path}")
@@ -81,8 +169,7 @@ def _backup_existing(install_dir: Path, backup: Path, files) -> None:
 
 def _replace_from_stage(install_dir: Path, stage: Path, files) -> None:
     for entry in files:
-        if Path(entry.path).parts[0] in PRESERVED_ROOT_NAMES:
-            raise UpdateError(f"El manifest intenta reemplazar datos preservados: {entry.path}")
+        _validate_update_target(entry.path)
         source = stage / Path(entry.path)
         destination = install_dir / Path(entry.path)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -110,7 +197,12 @@ def _smoke_test(install_dir: Path) -> None:
         raise UpdateError("Smoke test falló: ejecutable principal ausente o inválido")
 
 
-def apply_update(package_dir: Path, install_dir: Path, *, allow_downgrade: bool = False) -> str:
+def apply_update(
+    package_dir: Path,
+    install_dir: Path,
+    *,
+    allow_downgrade: bool = False,
+) -> str:
     logger = build_logger(install_dir / "logs", name="dms_updater")
     envelope = read_json(package_dir / "manifest.json", required=True)
     payload_root = package_dir / "payload"
@@ -123,14 +215,23 @@ def apply_update(package_dir: Path, install_dir: Path, *, allow_downgrade: bool 
     _verify_payload(payload_root, files)
 
     executable = install_dir / EXECUTABLE_NAME
+    runtime_was_active = _named_mutex_exists(MUTEX_NAME) or _named_mutex_exists(
+        SUPERVISOR_MUTEX_NAME
+    )
     suspend_automatic_restart()
-    was_running = False
     work_root: Path | None = None
     try:
-        was_running = signal_running_instance()
+        signal_running_instance()
+        if runtime_was_active and not _wait_for_application_exit():
+            raise UpdateError(
+                "La aplicación o su supervisor no finalizaron dentro del tiempo permitido"
+            )
         if executable.exists() and not _wait_for_unlock(executable):
-            raise UpdateError("La aplicación no cerró limpiamente o mantiene archivos bloqueados")
-        work_root = Path(tempfile.mkdtemp(prefix="dms-update-", dir=str(install_dir.parent)))
+            raise UpdateError("El ejecutable continúa bloqueado después del cierre")
+
+        work_root = Path(
+            tempfile.mkdtemp(prefix="dms-update-", dir=str(install_dir.parent))
+        )
         stage = work_root / "stage"
         backup = work_root / "backup"
         stage.mkdir()
@@ -145,7 +246,10 @@ def apply_update(package_dir: Path, install_dir: Path, *, allow_downgrade: bool 
                 {
                     "status": "ok",
                     "version": version,
-                    "updated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "updated_at_utc": time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ",
+                        time.gmtime(),
+                    ),
                 },
                 backup=False,
             )
@@ -159,15 +263,19 @@ def apply_update(package_dir: Path, install_dir: Path, *, allow_downgrade: bool 
         if work_root is not None:
             shutil.rmtree(work_root, ignore_errors=True)
         resume_automatic_restart()
-        if was_running:
+        if runtime_was_active:
             _restart_application(executable, install_dir)
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Actualizador seguro del Lector de Cédulas DMS")
+    parser = argparse.ArgumentParser(
+        description="Actualizador seguro del Lector de Cédulas DMS"
+    )
     parser.add_argument(
         "--package",
-        default=os.path.dirname(sys.executable if getattr(sys, "frozen", False) else __file__),
+        default=os.path.dirname(
+            sys.executable if getattr(sys, "frozen", False) else __file__
+        ),
     )
     parser.add_argument("--install-dir", required=True)
     parser.add_argument("--allow-downgrade", action="store_true")

@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -11,7 +12,10 @@ from typing import Any, Callable
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
 
 from .atomic_io import AtomicJsonError, read_json, write_json_atomic
 from .version import LICENSE_SCHEMA_VERSION, PRODUCT_ID
@@ -37,8 +41,7 @@ def parse_utc(value: str, field_name: str) -> datetime:
         raise LicenseError(f"{field_name} no tiene formato ISO-8601 válido") from exc
     if parsed.tzinfo is None:
         raise LicenseError(f"{field_name} debe incluir zona horaria UTC")
-    parsed = parsed.astimezone(timezone.utc)
-    return parsed
+    return parsed.astimezone(timezone.utc)
 
 
 def iso_z(value: datetime) -> str:
@@ -48,11 +51,77 @@ def iso_z(value: datetime) -> str:
 
 
 def canonical_payload(payload: dict[str, Any]) -> bytes:
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
 
 
 def payload_digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_payload(payload)).hexdigest()
+
+
+def _validated_identifier(value: Any, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text or len(text) > 128 or any(ord(char) < 32 for char in text):
+        raise LicenseError(f"{field_name} inválido")
+    return text
+
+
+def _validated_datetime(value: datetime, field_name: str) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise LicenseError(f"{field_name} debe incluir zona horaria")
+    return value.astimezone(timezone.utc)
+
+
+def _private_bytes(key: Ed25519PrivateKey) -> bytes:
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+
+
+def _public_bytes(key: Ed25519PublicKey) -> bytes:
+    return key.public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+
+def _atomic_bytes(path: Path, data: bytes, *, private: bool = False) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if private:
+            try:
+                os.chmod(temporary, 0o600)
+            except OSError:
+                pass
+        os.replace(temporary, path)
+        if private:
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,12 +171,17 @@ class LicenseVerifier:
         if "payload" not in envelope or "signature" not in envelope:
             if "licencia" in envelope or "expira" in envelope:
                 raise LicenseError(
-                    "La licencia usa el formato antiguo y debe renovarse desde el dashboard seguro"
+                    "La licencia usa el formato antiguo y debe renovarse "
+                    "desde el dashboard seguro"
                 )
             raise LicenseError("La licencia no contiene payload y firma")
         return envelope
 
-    def _validate_payload(self, payload: Any, installation_id: str | None) -> LicenseClaims:
+    def _validate_payload(
+        self,
+        payload: Any,
+        installation_id: str | None,
+    ) -> LicenseClaims:
         if not isinstance(payload, dict):
             raise LicenseError("payload inválido")
         required = {
@@ -127,17 +201,18 @@ class LicenseVerifier:
         product = str(payload.get("product") or "")
         if product != PRODUCT_ID:
             raise LicenseError("La licencia pertenece a otro producto")
-        client_id = str(payload.get("client_id") or "").strip()
-        license_id = str(payload.get("license_id") or "").strip()
-        if not client_id or len(client_id) > 128 or not license_id or len(license_id) > 128:
-            raise LicenseError("client_id o license_id inválido")
+        client_id = _validated_identifier(payload.get("client_id"), "client_id")
+        license_id = _validated_identifier(payload.get("license_id"), "license_id")
         issued = parse_utc(payload.get("issued_at_utc"), "issued_at_utc")
         expires = parse_utc(payload.get("expires_at_utc"), "expires_at_utc")
         if expires <= issued:
             raise LicenseError("La expiración debe ser posterior a la emisión")
         bound_installation = payload.get("installation_id")
         if bound_installation is not None:
-            bound_installation = str(bound_installation).strip()
+            bound_installation = _validated_identifier(
+                bound_installation,
+                "installation_id",
+            )
             if not installation_id:
                 raise LicenseError("La licencia requiere identificación de instalación")
             if bound_installation != installation_id:
@@ -167,7 +242,9 @@ class LicenseVerifier:
             except LicenseError:
                 previous_seen = None
             if previous_seen and now + self.rollback_tolerance < previous_seen:
-                raise LicenseError("El reloj del sistema retrocedió de forma no permitida")
+                raise LicenseError(
+                    "El reloj del sistema retrocedió de forma no permitida"
+                )
         write_json_atomic(
             self.state_path,
             {"license_sha256": digest, "last_seen_utc": iso_z(now)},
@@ -192,10 +269,14 @@ class LicenseVerifier:
         claims = self._validate_payload(payload, installation_id)
         now = self.clock()
         if now.tzinfo is None:
-            raise LicenseError("El reloj interno debe devolver una fecha con zona horaria")
+            raise LicenseError(
+                "El reloj interno debe devolver una fecha con zona horaria"
+            )
         now = now.astimezone(timezone.utc)
         if now < claims.issued_at_utc - timedelta(minutes=5):
-            raise LicenseError("La licencia todavía no es válida; revise el reloj de Windows")
+            raise LicenseError(
+                "La licencia todavía no es válida; revise el reloj de Windows"
+            )
         if now >= claims.expires_at_utc:
             raise LicenseError("La licencia ha expirado")
         digest = payload_digest(payload)
@@ -203,29 +284,55 @@ class LicenseVerifier:
         return claims
 
 
-def generate_keypair(private_key_path: str | os.PathLike[str], public_key_path: str | os.PathLike[str]) -> None:
+def generate_keypair(
+    private_key_path: str | os.PathLike[str],
+    public_key_path: str | os.PathLike[str],
+) -> None:
     private_path = Path(private_key_path)
     public_path = Path(public_key_path)
     if private_path.exists():
         raise FileExistsError(f"La clave privada ya existe: {private_path}")
-    private_path.parent.mkdir(parents=True, exist_ok=True)
-    public_path.parent.mkdir(parents=True, exist_ok=True)
-    private_key = Ed25519PrivateKey.generate()
-    private_bytes = private_key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    )
-    public_bytes = private_key.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-    private_path.write_bytes(private_bytes)
-    public_path.write_bytes(public_bytes)
+    key = Ed25519PrivateKey.generate()
+    _atomic_bytes(private_path, _private_bytes(key), private=True)
+    _atomic_bytes(public_path, _public_bytes(key.public_key()))
+
+
+def ensure_keypair(
+    private_key_path: str | os.PathLike[str],
+    public_key_path: str | os.PathLike[str],
+) -> tuple[Path, Path]:
+    """Garantiza un par consistente sin cambiar una privada existente."""
+    private_path = Path(private_key_path)
+    public_path = Path(public_key_path)
+    if not private_path.exists():
+        key = Ed25519PrivateKey.generate()
+        _atomic_bytes(private_path, _private_bytes(key), private=True)
+        _atomic_bytes(public_path, _public_bytes(key.public_key()))
+        return private_path, public_path
+
+    try:
+        loaded = serialization.load_pem_private_key(
+            private_path.read_bytes(),
+            password=None,
+        )
+    except Exception as exc:
+        raise LicenseError("No se pudo cargar la clave privada existente") from exc
+    if not isinstance(loaded, Ed25519PrivateKey):
+        raise LicenseError("La clave privada existente no es Ed25519")
+
+    expected_public = _public_bytes(loaded.public_key())
+    current_public = None
+    try:
+        current_public = public_path.read_bytes()
+    except OSError:
+        pass
+    if current_public != expected_public:
+        _atomic_bytes(public_path, expected_public)
     try:
         os.chmod(private_path, 0o600)
     except OSError:
         pass
+    return private_path, public_path
 
 
 def issue_license(
@@ -241,16 +348,27 @@ def issue_license(
     key = serialization.load_pem_private_key(private_key_raw, password=None)
     if not isinstance(key, Ed25519PrivateKey):
         raise LicenseError("La clave privada no es Ed25519")
+
+    client = _validated_identifier(client_id, "client_id")
+    license_value = _validated_identifier(license_id, "license_id")
+    issued = _validated_datetime(issued_at_utc, "issued_at_utc")
+    expires = _validated_datetime(expires_at_utc, "expires_at_utc")
+    if expires <= issued:
+        raise LicenseError("La expiración debe ser posterior a la emisión")
+
     payload: dict[str, Any] = {
         "schema_version": LICENSE_SCHEMA_VERSION,
         "product": PRODUCT_ID,
-        "client_id": str(client_id).strip(),
-        "license_id": str(license_id).strip(),
-        "issued_at_utc": iso_z(issued_at_utc),
-        "expires_at_utc": iso_z(expires_at_utc),
+        "client_id": client,
+        "license_id": license_value,
+        "issued_at_utc": iso_z(issued),
+        "expires_at_utc": iso_z(expires),
     }
-    if installation_id:
-        payload["installation_id"] = str(installation_id).strip()
+    if installation_id is not None:
+        payload["installation_id"] = _validated_identifier(
+            installation_id,
+            "installation_id",
+        )
     signature = key.sign(canonical_payload(payload))
     return {
         "payload": payload,
