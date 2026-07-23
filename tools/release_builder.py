@@ -18,7 +18,7 @@ if str(TEMPLATE) not in sys.path:
 
 from assets.runtime.hardened.atomic_io import write_json_atomic  # noqa: E402
 from assets.runtime.hardened.license_service import (  # noqa: E402
-    generate_keypair,
+    ensure_keypair,
     issue_license,
     parse_utc,
 )
@@ -47,13 +47,10 @@ def _ensure_keys(name: str) -> tuple[Path, Path]:
     secret = _secret_root()
     private = secret / f"{name}_private_key.pem"
     public = secret / f"{name}_public_key.pem"
-    if not private.exists():
-        generate_keypair(private, public)
-    elif not public.exists():
-        raise BuildError(
-            f"Falta clave pública para {name}; no se regeneró la privada existente"
-        )
-    return private, public
+    try:
+        return ensure_keypair(private, public)
+    except Exception as exc:
+        raise BuildError(f"No se pudo preparar el par de claves {name}: {exc}") from exc
 
 
 def _run(
