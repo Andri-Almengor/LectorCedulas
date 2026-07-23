@@ -71,6 +71,43 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
         self._last_reader_state_at = time.monotonic()
         super()._state_changed(state, detail)
 
+    def _submit_serial_frame(self, raw, target, identity) -> bool:
+        if not self._processing_slots.acquire(blocking=False):
+            self.last_error = "Procesamiento saturado"
+            self._notify(
+                "Procesamiento ocupado",
+                "La lectura no fue aceptada; espere y vuelva a escanear",
+            )
+            self._log(technical_event("parser_backpressure"))
+            return False
+
+        # El snapshot se toma cuando el frame entra al pipeline, no cuando termina
+        # una consulta de red o cuando finalmente llega a la cola de escritura.
+        with self._configuration_transition_lock:
+            try:
+                captured_snapshot = self.config.load_active()
+            except ConfigurationError:
+                captured_snapshot = None
+        try:
+            self._parser_pool.submit(
+                self._process_scan_async,
+                raw,
+                target,
+                identity,
+                captured_snapshot,
+            )
+            return True
+        except Exception as exc:
+            self._processing_slots.release()
+            self.last_error = type(exc).__name__
+            self._log(
+                technical_event(
+                    "parser_submit_failed",
+                    error_type=type(exc).__name__,
+                )
+            )
+            return False
+
     def _enqueue_validated_scan(self, raw, data, target, snapshot) -> bool:
         if self._is_duplicate(raw):
             self._log(technical_event("scan_duplicate_ignored"))
@@ -130,7 +167,7 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
         )
         return True
 
-    def _process_scan_async(self, raw, target, identity) -> None:
+    def _process_scan_async(self, raw, target, identity, captured_snapshot) -> None:
         try:
             try:
                 result = self.parsers.parse(raw)
@@ -170,10 +207,20 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
                 )
                 return
 
-            # El snapshot y el submit forman una sola transición respecto a los atajos.
+            if captured_snapshot is None:
+                self.last_error = "Configuración inválida al recibir la lectura"
+                self.serial.confirm_rejected(raw, "configuration_invalid")
+                self._notify(
+                    "Configuración inválida",
+                    "Corrija o seleccione una configuración y vuelva a escanear.",
+                )
+                self._log(technical_event("configuration_invalid_at_frame_submit"))
+                return
+
+            # Validación y enqueue forman una sola transición respecto al atajo.
             with self._configuration_transition_lock:
                 try:
-                    snapshot = self.config.load_active()
+                    current_snapshot = self.config.load_active()
                 except ConfigurationError as exc:
                     self.last_error = str(exc)
                     self.serial.confirm_rejected(raw, "configuration_invalid")
@@ -189,9 +236,28 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
                     )
                     return
 
+                if current_snapshot.generation != captured_snapshot.generation:
+                    self.last_error = "La configuración cambió durante la lectura"
+                    self.serial.confirm_rejected(
+                        raw,
+                        "configuration_changed_during_scan",
+                    )
+                    self._notify(
+                        "Configuración cambiada",
+                        "La lectura no se escribió. Vuelva a escanear con el modo actual.",
+                    )
+                    self._log(
+                        technical_event(
+                            "scan_configuration_generation_rejected",
+                            captured_generation=captured_snapshot.generation,
+                            current_generation=current_snapshot.generation,
+                        )
+                    )
+                    return
+
                 configuration_quality = validate_for_configuration(
                     data,
-                    snapshot.fields,
+                    captured_snapshot.fields,
                 )
                 if not configuration_quality.accepted:
                     self.last_error = (
@@ -209,14 +275,19 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
                         technical_event(
                             "scan_configuration_rejected",
                             parser_id=result.parser_id,
-                            configuration_id=snapshot.configuration_id,
-                            configuration_generation=snapshot.generation,
+                            configuration_id=captured_snapshot.configuration_id,
+                            configuration_generation=captured_snapshot.generation,
                             reason=configuration_quality.reason,
                         )
                     )
                     return
 
-                if self._enqueue_validated_scan(raw, data, target, snapshot):
+                if self._enqueue_validated_scan(
+                    raw,
+                    data,
+                    target,
+                    captured_snapshot,
+                ):
                     self.serial.confirm_accepted(identity)
         finally:
             self._processing_slots.release()
