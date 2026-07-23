@@ -34,6 +34,40 @@ def consume_manual_exit() -> bool:
     return True
 
 
+def restart_suspension_marker() -> Path:
+    return state_root() / "suspend_restart.flag"
+
+
+def suspend_automatic_restart() -> None:
+    marker = restart_suspension_marker()
+    temporary = marker.with_suffix(".tmp")
+    temporary.write_text(str(time.time()), encoding="utf-8")
+    os.replace(temporary, marker)
+
+
+def resume_automatic_restart() -> None:
+    try:
+        restart_suspension_marker().unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
+
+def automatic_restart_suspended(*, max_age_seconds: float = 300.0) -> bool:
+    marker = restart_suspension_marker()
+    if not marker.exists():
+        return False
+    try:
+        created = float(marker.read_text(encoding="utf-8").strip())
+    except Exception:
+        created = marker.stat().st_mtime
+    if time.time() - created <= max_age_seconds:
+        return True
+    resume_automatic_restart()
+    return False
+
+
 def append_supervisor_log(message: str) -> None:
     path = state_root() / "supervisor.log"
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
