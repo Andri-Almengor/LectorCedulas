@@ -47,6 +47,27 @@ def test_five_digit_tse_identity_is_rejected():
     assert decision.reason == "cedula_invalid"
 
 
+def test_mdoc_safe_alias_is_preserved():
+    data = {
+        "TipoCedulaDetectado": "TSE_MDOC_ISO18013",
+        "Cedula": "DESCONOCIDO",
+        "DocumentoURL": "https://servicioidc.tse.go.cr/Iso18013/documento",
+    }
+    decision = validate_parser_data(data, "TSE_MDOC_SAFE")
+    assert decision.accepted
+
+
+def test_mdoc_rejects_untrusted_or_missing_url():
+    data = {
+        "TipoCedulaDetectado": "TSE_MDOC_ISO18013",
+        "Cedula": "DESCONOCIDO",
+        "DocumentoURL": "https://example.com/documento",
+    }
+    decision = validate_parser_data(data, "TSE_MDOC_SAFE")
+    assert not decision.accepted
+    assert decision.reason == "mdoc_url_invalid"
+
+
 def test_impossible_date_is_rejected_semantically():
     data = complete_person()
     data["Fecha de Nacimiento"] = "31/02/2005"
