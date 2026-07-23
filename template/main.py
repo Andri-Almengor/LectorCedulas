@@ -1,5 +1,5 @@
-from assets.runtime.hardened.app_runtime import Application
+from assets.runtime.hardened.desktop_app import DesktopApplication
 
 
 if __name__ == "__main__":
-    raise SystemExit(Application().run())
+    raise SystemExit(DesktopApplication().run())
