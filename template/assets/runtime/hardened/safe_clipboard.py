@@ -7,6 +7,8 @@ import time
 from ctypes import wintypes
 from typing import Protocol
 
+import pyperclip
+
 
 class ClipboardBackend(Protocol):
     def copy(self, text: str) -> None: ...
@@ -15,13 +17,9 @@ class ClipboardBackend(Protocol):
 
 class _PyperclipBackend:
     def copy(self, text: str) -> None:
-        import pyperclip
-
         pyperclip.copy(str(text))
 
     def paste(self) -> str:
-        import pyperclip
-
         value = pyperclip.paste()
         return "" if value is None else str(value)
 
