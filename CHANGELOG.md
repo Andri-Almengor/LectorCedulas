@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.0.0-qa5 — 2026-07-23
+
+### Estrés, permanencia y atajos
+
+- Todos los controles usan pegado atómico por portapapeles como primera opción.
+- El respaldo Unicode envía un carácter por vez con pausas controladas.
+- Cada pegado espera a que Windows procese el evento antes de cambiar el portapapeles.
+- Se agregó una separación mínima entre trabajos para impedir filas mezcladas bajo carga.
+- `Ctrl+Alt+C` se registra globalmente y alterna las dos configuraciones favoritas.
+- `Ctrl+Alt+Esc` comparte el mismo servicio global y conserva la cancelación de emergencia.
+- Un supervisor reinicia automáticamente la cola o el gestor serial si sus hilos terminan.
+- Un lector atascado en conexión, lectura o procesamiento fuerza una reconexión.
+- La bandeja se vuelve a crear si su backend termina sin una salida manual.
+
 ## 4.0.0-qa4 — 2026-07-23
 
 ### Escritura en Windows
