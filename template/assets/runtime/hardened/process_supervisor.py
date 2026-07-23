@@ -10,50 +10,12 @@ from pathlib import Path
 
 from .crash_diagnostics import install_crash_diagnostics
 from .production_app import ProductionDesktopApplication
+from .runtime_state import append_supervisor_log, consume_manual_exit
 
 WORKER_ARG = "--dms-worker"
 RECOVERY_ARG = "--dms-recovery"
 _SUPERVISOR_MUTEX = r"Global\DMS_LectorCedulas_Supervisor_v1"
 _ERROR_ALREADY_EXISTS = 183
-
-
-def _state_root() -> Path:
-    base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share")
-    path = base / "DMS" / "LectorCedulas" / "runtime"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def manual_exit_marker() -> Path:
-    return _state_root() / "manual_exit.flag"
-
-
-def mark_manual_exit() -> None:
-    marker = manual_exit_marker()
-    temporary = marker.with_suffix(".tmp")
-    temporary.write_text(str(os.getpid()), encoding="utf-8")
-    os.replace(temporary, marker)
-
-
-def consume_manual_exit() -> bool:
-    marker = manual_exit_marker()
-    if not marker.exists():
-        return False
-    try:
-        marker.unlink()
-    except OSError:
-        pass
-    return True
-
-
-def _append_supervisor_log(message: str) -> None:
-    path = _state_root() / "supervisor.log"
-    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    try:
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(f"{stamp} {message}\n")
-    except OSError:
-        pass
 
 
 class _SupervisorMutex:
@@ -119,26 +81,26 @@ def supervise(root_dir: str | os.PathLike[str] | None = None) -> int:
     try:
         while True:
             command = _worker_command(recovery=recovery)
-            _append_supervisor_log(f"worker_start recovery={int(recovery)}")
+            append_supervisor_log(f"worker_start recovery={int(recovery)}")
             try:
                 process = subprocess.Popen(command, cwd=_application_root(root_dir))
                 exit_code = int(process.wait())
             except Exception as exc:
                 exit_code = -1
-                _append_supervisor_log(f"worker_launch_failed type={type(exc).__name__}")
+                append_supervisor_log(f"worker_launch_failed type={type(exc).__name__}")
 
             if consume_manual_exit():
-                _append_supervisor_log(f"manual_exit code={exit_code}")
+                append_supervisor_log(f"manual_exit code={exit_code}")
                 return 0
             if exit_code in {2, 3}:
-                _append_supervisor_log(f"startup_exit code={exit_code}")
+                append_supervisor_log(f"startup_exit code={exit_code}")
                 return exit_code
 
             now = time.monotonic()
             restart_times = [value for value in restart_times if now - value <= 60.0]
             restart_times.append(now)
             delay = 1.0 if len(restart_times) <= 3 else min(15.0, float(len(restart_times) * 2))
-            _append_supervisor_log(f"unexpected_exit code={exit_code} restart_in={delay:.1f}")
+            append_supervisor_log(f"unexpected_exit code={exit_code} restart_in={delay:.1f}")
             time.sleep(delay)
             recovery = True
     finally:
