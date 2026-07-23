@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.0.0-qa7 — 2026-07-23
+
+### Integridad de cada lectura
+
+- La trama serial necesita una segunda ventana de silencio estable antes de cerrarse.
+- Los fragmentos tardíos recibidos durante la estabilización se anexan a la misma lectura.
+- La ventana objetivo se captura al llegar el primer bloque de la cédula, no al finalizar el frame.
+- El parsing se procesa en orden estricto para impedir que una consulta TSE adelante otra lectura.
+- Una compuerta semántica rechaza identificaciones truncadas, fechas imposibles y nombres incompletos antes de tocar el formulario.
+- La configuración activa define qué campos deben existir: el modo rápido permite solo cédula, mientras el modo completo exige sus datos configurados.
+
+### Escritura y cambios de configuración
+
+- Cambiar configuración ya no cancela una escritura iniciada; la transacción actual termina completa.
+- Los trabajos pendientes de la configuración anterior sí se descartan mediante una barrera de generación.
+- `Ctrl+Alt+Esc` conserva la cancelación inmediata como acción de emergencia explícita.
+- El respaldo Unicode verifica la ventana exacta antes de cada carácter y después de cada campo.
+- El pegado por portapapeles valida nuevamente el objetivo antes y después de `Ctrl+V`.
+- Los fallos registran cuántos campos o caracteres llegaron a enviarse para facilitar el diagnóstico.
+
+### Concurrencia, cierre y actualización
+
+- La selección de configuración y la creación del trabajo forman una transición atómica.
+- El COM se confirma como válido solamente después de que la lectura entra realmente en la cola.
+- El cierre del gestor serial y de la cola espera a sus hilos para evitar instancias superpuestas.
+- El actualizador espera la liberación real de los mutex del worker y del supervisor antes de reemplazar archivos.
+- GitHub Actions agrega un build smoke de PyInstaller en Windows.
+
 ## 4.0.0-qa6 — 2026-07-23
 
 ### Supervivencia del proceso
