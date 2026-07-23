@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from assets.runtime.hardened.instance_control import MUTEX_NAME
 from assets.runtime.hardened.runtime_state import SUPERVISOR_MUTEX_NAME
 from tools import updater
@@ -83,3 +85,36 @@ def test_named_mutex_wait_times_out_while_object_still_exists(monkeypatch):
     )
 
     assert not updater._wait_for_named_mutex_release("MUTEX", timeout=0.11)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "licencia.key",
+        "configs/formularios/cliente.json",
+        "configs/sistema/config_actual.json",
+        "configs/sistema/ultimo_com.json",
+        "configs/otro/archivo.json",
+    ],
+)
+def test_update_rejects_client_owned_paths(path):
+    with pytest.raises(updater.UpdateError):
+        updater._validate_update_target(path)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "LectorCedulasDMS.exe",
+        "crear_configuracion.exe",
+        "assets/runtime/hardened/production_app.py",
+        "configs/formatos/formatos_cedulas.json",
+    ],
+)
+def test_update_allows_runtime_and_managed_catalog_paths(path):
+    updater._validate_update_target(path)
+
+
+def test_path_protection_is_case_insensitive():
+    with pytest.raises(updater.UpdateError):
+        updater._validate_update_target("CONFIGS/FORMULARIOS/Cliente.JSON")
