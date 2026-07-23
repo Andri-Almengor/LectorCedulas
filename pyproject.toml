@@ -10,3 +10,13 @@ markers = [
 [tool.ruff]
 line-length = 110
 target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+# Deuda de estilo heredada. Se mantiene acotada a estos archivos mientras el
+# runtime nuevo y toda modificación futura continúan bajo Ruff sin excepciones.
+"template/assets/runtime/editor_core.py" = ["E701", "E702"]
+"template/assets/runtime/lector_core.py" = ["E401", "E722", "F401"]
+"template/assets/runtime/hardened/config_service.py" = ["F401"]
+"template/assets/runtime/hardened/format_engine.py" = ["F841"]
+"template/assets/runtime/hardened/privacy.py" = ["F401"]
+"tests/security/test_fuzz_properties.py" = ["E402"]
