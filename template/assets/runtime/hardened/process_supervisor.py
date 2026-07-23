@@ -99,16 +99,9 @@ def supervise(root_dir: str | os.PathLike[str] | None = None) -> int:
             if exit_code in {2, 3}:
                 append_supervisor_log(f"startup_exit code={exit_code}")
                 return exit_code
-
-            suspension_logged = False
-            while automatic_restart_suspended():
-                if not suspension_logged:
-                    append_supervisor_log("restart_suspended")
-                    suspension_logged = True
-                if consume_manual_exit():
-                    append_supervisor_log(f"manual_exit_during_suspension code={exit_code}")
-                    return 0
-                time.sleep(0.5)
+            if automatic_restart_suspended():
+                append_supervisor_log(f"restart_suspended supervisor_exit code={exit_code}")
+                return 0
 
             now = time.monotonic()
             restart_times = [value for value in restart_times if now - value <= 60.0]
