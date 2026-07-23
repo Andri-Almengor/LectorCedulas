@@ -3,13 +3,16 @@ from __future__ import annotations
 import ctypes
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
+from .config_service import ConfigurationError
 from .desktop_app import DesktopApplication
 from .global_hotkeys import GlobalHotkeyService
 from .models import ReaderState
 from .privacy import technical_event
 from .reliable_app import ReliableDesktopApplication
 from .runtime_state import mark_manual_exit
+from .scan_quality import validate_for_configuration, validate_parser_data
 from .stress_safe_writer import StressSafeFormWriter
 from .version import PRODUCT_NAME, VERSION
 from .windows_control import WindowsControlProbe
@@ -26,6 +29,16 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
         self._last_watchdog_reconnect_at = 0.0
         self._recovery_mode = bool(recovery_mode)
         super().__init__(root_dir=root_dir)
+
+        # Una sola tubería de parsing conserva el orden físico de los escaneos.
+        old_pool = self._parser_pool
+        self._parser_pool = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="DMSParserOrdered",
+        )
+        old_pool.shutdown(wait=False, cancel_futures=True)
+        self._processing_slots = threading.BoundedSemaphore(16)
+
         self.writer = StressSafeFormWriter(
             windows=self.windows,
             control_probe=WindowsControlProbe(self.windows),
@@ -54,6 +67,90 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
         self._last_reader_state_at = time.monotonic()
         super()._state_changed(state, detail)
 
+    def _process_scan_async(self, raw, target, identity) -> None:
+        try:
+            try:
+                result = self.parsers.parse(raw)
+            except Exception as exc:
+                self.last_error = type(exc).__name__
+                self.serial.confirm_rejected(raw, "parser_error")
+                self._log(
+                    technical_event(
+                        "parser_error",
+                        error_type=type(exc).__name__,
+                    )
+                )
+                return
+
+            if not result.recognized:
+                self.serial.confirm_rejected(raw, "format_not_recognized")
+                return
+
+            data = self.tse.enrich(result.data)
+            parser_quality = validate_parser_data(data, result.parser_id)
+            if not parser_quality.accepted:
+                self.last_error = f"Lectura incompleta: {parser_quality.reason}"
+                self.serial.confirm_rejected(
+                    raw,
+                    f"semantic_quality:{parser_quality.reason}",
+                )
+                self._notify(
+                    "Lectura incompleta",
+                    "No se modificó el formulario. Vuelva a escanear la cédula.",
+                )
+                self._log(
+                    technical_event(
+                        "scan_semantic_rejected",
+                        parser_id=result.parser_id,
+                        reason=parser_quality.reason,
+                    )
+                )
+                return
+
+            try:
+                snapshot = self.config.load_active()
+            except ConfigurationError as exc:
+                self.last_error = str(exc)
+                self.serial.confirm_rejected(raw, "configuration_invalid")
+                self._notify(
+                    "Configuración inválida",
+                    "Corrija o seleccione una configuración antes de escanear.",
+                )
+                self._log(
+                    technical_event(
+                        "configuration_invalid_before_queue",
+                        error_type=type(exc).__name__,
+                    )
+                )
+                return
+
+            configuration_quality = validate_for_configuration(data, snapshot.fields)
+            if not configuration_quality.accepted:
+                self.last_error = f"Datos insuficientes: {configuration_quality.reason}"
+                self.serial.confirm_rejected(
+                    raw,
+                    f"configuration_quality:{configuration_quality.reason}",
+                )
+                self._notify(
+                    "Datos insuficientes",
+                    "La configuración activa requiere más datos. No se escribió nada.",
+                )
+                self._log(
+                    technical_event(
+                        "scan_configuration_rejected",
+                        parser_id=result.parser_id,
+                        configuration_id=snapshot.configuration_id,
+                        configuration_generation=snapshot.generation,
+                        reason=configuration_quality.reason,
+                    )
+                )
+                return
+
+            self.serial.confirm_accepted(identity)
+            self._on_scan(raw, data, target)
+        finally:
+            self._processing_slots.release()
+
     def _emergency_hotkey_loop(self) -> None:
         def cancel_current() -> None:
             if self.queue.cancel_current("tecla_emergencia"):
@@ -73,7 +170,7 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
         try:
             old_serial = self.serial
             try:
-                old_serial.stop()
+                old_serial.stop(wait=True, timeout=2.5)
             except Exception as exc:
                 self._log(
                     technical_event(
