@@ -41,7 +41,10 @@ def test_update_archive_contains_managed_catalog_but_not_client_state(
         (work / "licencia.key").write_text("preservada", encoding="utf-8")
         return work
 
-    def build(work: Path, _script, name, _log, *, console=False) -> Path:
+    def build(work: Path, _script, name, log, *, console=False) -> Path:
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write(f"synthetic build: {name}; console={console}\n")
         output = work / "dist" / f"{name}.exe"
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(b"MZ" + b"0" * 2048)
