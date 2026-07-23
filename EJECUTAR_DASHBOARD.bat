@@ -11,7 +11,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-for /f "delims=" %%I in ('py -c "import sysconfig; print(sysconfig.get_path('scripts'))"') do set "PATH=%%I;%PATH%"
+for /f "usebackq delims=" %%I in (`py -c "import sysconfig; print(sysconfig.get_path('scripts'))"`) do set "PATH=%%I;%PATH%"
 
 py dashboard.py
 pause
