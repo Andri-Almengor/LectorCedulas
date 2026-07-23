@@ -26,13 +26,46 @@ from assets.runtime.hardened.update_manifest import (
 )
 from assets.runtime.hardened.version import VERSION
 
-PRESERVED_ROOT_NAMES = {"licencia.key", "configs"}
 EXECUTABLE_NAME = "LectorCedulasDMS.exe"
 _SYNCHRONIZE = 0x00100000
+_PROTECTED_EXACT_PATHS = {("licencia.key",)}
+_PROTECTED_CONFIG_PREFIXES = {
+    ("configs", "formularios"),
+    ("configs", "sistema"),
+}
+_MANAGED_CONFIG_PREFIX = ("configs", "formatos")
 
 
 class UpdateError(RuntimeError):
     pass
+
+
+def _path_parts(value: str) -> tuple[str, ...]:
+    return tuple(part.casefold() for part in Path(value).parts)
+
+
+def _starts_with(parts: tuple[str, ...], prefix: tuple[str, ...]) -> bool:
+    return len(parts) >= len(prefix) and parts[: len(prefix)] == prefix
+
+
+def _validate_update_target(value: str) -> None:
+    """Protege datos del cliente y permite solo el catálogo administrado.
+
+    El manifest ya garantiza rutas relativas seguras. Esta segunda barrera define
+    qué rutas firmadas puede reemplazar el actualizador: licencia, formularios y
+    estado local nunca se tocan; dentro de ``configs`` únicamente se administra
+    el catálogo oficial ``formatos``.
+    """
+    parts = _path_parts(value)
+    if parts in _PROTECTED_EXACT_PATHS:
+        raise UpdateError(f"El manifest intenta reemplazar datos preservados: {value}")
+    if any(_starts_with(parts, prefix) for prefix in _PROTECTED_CONFIG_PREFIXES):
+        raise UpdateError(f"El manifest intenta reemplazar datos preservados: {value}")
+    if parts and parts[0] == "configs" and not _starts_with(
+        parts,
+        _MANAGED_CONFIG_PREFIX,
+    ):
+        raise UpdateError(f"Ruta de configuración no administrada: {value}")
 
 
 def _mutex_api():
@@ -107,6 +140,7 @@ def _restart_application(executable: Path, install_dir: Path) -> None:
 
 def _verify_payload(payload_root: Path, files) -> None:
     for entry in files:
+        _validate_update_target(entry.path)
         path = payload_root / Path(entry.path)
         if not path.is_file():
             raise UpdateError(f"Falta archivo del update: {entry.path}")
@@ -135,10 +169,7 @@ def _backup_existing(install_dir: Path, backup: Path, files) -> None:
 
 def _replace_from_stage(install_dir: Path, stage: Path, files) -> None:
     for entry in files:
-        if Path(entry.path).parts[0] in PRESERVED_ROOT_NAMES:
-            raise UpdateError(
-                f"El manifest intenta reemplazar datos preservados: {entry.path}"
-            )
+        _validate_update_target(entry.path)
         source = stage / Path(entry.path)
         destination = install_dir / Path(entry.path)
         destination.parent.mkdir(parents=True, exist_ok=True)
