@@ -23,6 +23,11 @@ def test_inno_preserves_client_configs_and_updates_managed_catalog(tmp_path):
     assert "RestartApplications=no" in text
     assert "SetupLogging=yes" in text
     assert 'Excludes: "configs\\*"' in text
+    assert not [
+        (index, ord(char))
+        for index, char in enumerate(text)
+        if ord(char) < 32 and char not in "\r\n"
+    ]
 
     format_line = next(
         line for line in text.splitlines() if "configs\\formatos\\*" in line
