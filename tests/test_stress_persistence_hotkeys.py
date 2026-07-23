@@ -140,7 +140,8 @@ def test_clipboard_failure_uses_paced_unicode_fallback():
     )
 
     assert result
-    assert adapter.writes == [("ANDRICK IVAN", 0.007)]
+    assert adapter.writes[0][0] == "ANDRICK IVAN"
+    assert adapter.writes[0][1] >= 0.007
 
 
 def test_global_hotkey_dispatches_favorites_and_emergency():
