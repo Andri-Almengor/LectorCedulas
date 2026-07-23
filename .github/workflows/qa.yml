@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   tests:
+    name: tests (${{ matrix.os }}, ${{ matrix.python }})
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +27,30 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements-dev.txt
-      - run: python -m compileall -q dashboard.py template tools tests
+      - run: python -m compileall -q dashboard.py main.py template tools tests
       - run: python -m pytest -q
-      - run: python -m ruff check dashboard.py template tools tests
+
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-dev.txt
+      - name: Generar reporte Ruff
+        continue-on-error: true
+        run: python -m ruff check dashboard.py main.py template tools tests --output-format=json > ruff-report.json
+      - name: Publicar reporte Ruff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-report
+          path: ruff-report.json
+          if-no-files-found: error
+      - name: Validar reporte Ruff
+        run: |
+          python -c "import json, pathlib; p=pathlib.Path('ruff-report.json'); data=json.loads(p.read_text() or '[]'); print(json.dumps(data, indent=2)); raise SystemExit(1 if data else 0)"
