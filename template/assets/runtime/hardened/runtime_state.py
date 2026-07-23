@@ -5,6 +5,9 @@ import time
 from pathlib import Path
 
 
+SUPERVISOR_MUTEX_NAME = r"Global\DMS_LectorCedulas_Supervisor_v1"
+
+
 def state_root() -> Path:
     base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share")
     path = base / "DMS" / "LectorCedulas" / "runtime"
