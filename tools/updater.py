@@ -28,9 +28,6 @@ from assets.runtime.hardened.version import VERSION
 
 PRESERVED_ROOT_NAMES = {"licencia.key", "configs"}
 EXECUTABLE_NAME = "LectorCedulasDMS.exe"
-_WAIT_OBJECT_0 = 0
-_WAIT_ABANDONED = 0x80
-_WAIT_TIMEOUT = 258
 _SYNCHRONIZE = 0x00100000
 
 
@@ -42,8 +39,6 @@ def _mutex_api():
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.OpenMutexW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
     kernel32.OpenMutexW.restype = wintypes.HANDLE
-    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    kernel32.WaitForSingleObject.restype = wintypes.DWORD
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
     return kernel32
@@ -61,22 +56,20 @@ def _named_mutex_exists(name: str) -> bool:
 
 
 def _wait_for_named_mutex_release(name: str, timeout: float) -> bool:
+    """Espera hasta que ningún proceso mantenga abierto el mutex nombrado.
+
+    Los mutex de instancia se crean sin propiedad inicial; por eso esperar con
+    WaitForSingleObject no demostraría que el proceso terminó. La señal correcta
+    es que OpenMutexW deje de encontrar el objeto cuando se cierre el último handle.
+    """
     if os.name != "nt":
         return True
-    kernel32 = _mutex_api()
-    handle = kernel32.OpenMutexW(_SYNCHRONIZE, False, name)
-    if not handle:
-        return True
-    try:
-        result = int(
-            kernel32.WaitForSingleObject(
-                handle,
-                max(0, min(int(timeout * 1000), 0xFFFFFFFE)),
-            )
-        )
-        return result in {_WAIT_OBJECT_0, _WAIT_ABANDONED}
-    finally:
-        kernel32.CloseHandle(handle)
+    deadline = time.monotonic() + max(0.0, timeout)
+    while time.monotonic() < deadline:
+        if not _named_mutex_exists(name):
+            return True
+        time.sleep(0.05)
+    return not _named_mutex_exists(name)
 
 
 def _wait_for_application_exit(timeout: float = 20.0) -> bool:
