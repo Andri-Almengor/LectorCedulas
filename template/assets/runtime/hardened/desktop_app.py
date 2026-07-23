@@ -27,6 +27,9 @@ class DesktopApplication(Application):
         self._calibration_lock = threading.Lock()
         self._control_panel_lock = threading.Lock()
 
+    def _request_exit(self) -> None:
+        self.shutdown()
+
     def _icon_path(self) -> Path:
         primary = self.root_dir / "assets" / "DMS_icono_circulo_i.ico"
         return primary if primary.is_file() else self.root_dir / "assets" / "icono.ico"
@@ -176,7 +179,7 @@ class DesktopApplication(Application):
                         open_logs=lambda: self._open_folder(self.root_dir / "logs"),
                         open_diagnostics=lambda: self._open_folder(self.root_dir / "diagnosticos"),
                         clear_diagnostics=self._clear_diagnostics,
-                        shutdown=self.shutdown,
+                        shutdown=self._request_exit,
                     ),
                 )
             finally:
@@ -242,7 +245,7 @@ class DesktopApplication(Application):
             ),
             MenuItem("Borrar diagnósticos", lambda _icon, _item: self._clear_diagnostics()),
             Menu.SEPARATOR,
-            MenuItem("Salir", lambda _icon, _item: self.shutdown()),
+            MenuItem("Salir", lambda _icon, _item: self._request_exit()),
         )
 
     def run(self) -> int:
