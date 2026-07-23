@@ -1,5 +1,5 @@
-from assets.runtime.hardened.production_app import ProductionDesktopApplication
+from assets.runtime.hardened.process_supervisor import run_entrypoint
 
 
 if __name__ == "__main__":
-    raise SystemExit(ProductionDesktopApplication().run())
+    raise SystemExit(run_entrypoint())

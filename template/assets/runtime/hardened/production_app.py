@@ -9,6 +9,7 @@ from .global_hotkeys import GlobalHotkeyService
 from .models import ReaderState
 from .privacy import technical_event
 from .reliable_app import ReliableDesktopApplication
+from .runtime_state import mark_manual_exit
 from .stress_safe_writer import StressSafeFormWriter
 from .version import PRODUCT_NAME, VERSION
 from .windows_control import WindowsControlProbe
@@ -20,9 +21,10 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
     _STUCK_STATE_SECONDS = 15.0
     _RECONNECT_COOLDOWN_SECONDS = 12.0
 
-    def __init__(self, root_dir=None):
+    def __init__(self, root_dir=None, *, recovery_mode: bool = False):
         self._last_reader_state_at = time.monotonic()
         self._last_watchdog_reconnect_at = 0.0
+        self._recovery_mode = bool(recovery_mode)
         super().__init__(root_dir=root_dir)
         self.writer = StressSafeFormWriter(
             windows=self.windows,
@@ -40,6 +42,13 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
             component = text.split(":", 1)[1]
             self.last_error = f"Componente reiniciado automáticamente: {component}"
         super()._log(text)
+
+    def _request_exit(self) -> None:
+        try:
+            mark_manual_exit()
+            self._log(technical_event("manual_exit_requested"))
+        finally:
+            self.shutdown()
 
     def _state_changed(self, state: ReaderState, detail: str) -> None:
         self._last_reader_state_at = time.monotonic()
@@ -160,6 +169,17 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
             )
             return 2
 
+        if self._recovery_mode:
+            preferred = str((self.config.load_last_port() or {}).get("device") or "")
+            self.last_error = "Proceso recuperado automáticamente"
+            self._log(
+                technical_event(
+                    "startup_recovery_mode",
+                    preferred_port=preferred or "unknown",
+                )
+            )
+            return 0
+
         if not self._run_calibration_dialog():
             self._log(technical_event("startup_calibration_cancelled"))
             self.instance.close()
@@ -184,7 +204,10 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
             daemon=True,
         ).start()
 
-        self._notify("Lector iniciado", "Lector calibrado y listo")
+        self._notify(
+            "Lector iniciado",
+            "Lector recuperado y listo" if self._recovery_mode else "Lector calibrado y listo",
+        )
         try:
             while not self.stop_event.is_set():
                 try:

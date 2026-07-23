@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.0.0-qa6 — 2026-07-23
+
+### Supervivencia del proceso
+
+- El acceso directo inicia un supervisor externo y no directamente el proceso lector.
+- Si el proceso lector termina inesperadamente, se reinicia con el COM guardado y sin repetir la calibración.
+- La opción **Salir** crea una marca explícita para detener también al supervisor.
+- Se agregaron archivos persistentes para excepciones Python y fallos nativos.
+- El actualizador suspende temporalmente el reinicio mientras reemplaza archivos.
+
+### Portapapeles e instancia única
+
+- La escritura deja de administrar memoria `HGLOBAL` manualmente y utiliza `pyperclip`.
+- Se conservan y restauran textos previos cuando es seguro hacerlo.
+- Los formatos no textuales se respetan y fuerzan el respaldo Unicode.
+- Los manejadores de mutex, evento y cierre usan firmas correctas para Windows x64.
+
 ## 4.0.0-qa5 — 2026-07-23
 
 ### Estrés, permanencia y atajos

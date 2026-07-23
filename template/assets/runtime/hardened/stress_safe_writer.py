@@ -5,11 +5,8 @@ import time
 from typing import Callable
 
 from .models import ScanJob, WriteProfile, WriteResult
-from .reliable_writer import (
-    ReliableFormWriter,
-    Win32ClipboardManager,
-    Win32UnicodeInputAdapter,
-)
+from .reliable_writer import ReliableFormWriter, Win32UnicodeInputAdapter
+from .safe_clipboard import SafeClipboardManager
 from .writer import ClipboardManager, ControlProbe, InputAdapter
 
 
@@ -42,7 +39,7 @@ class StressSafeFormWriter(ReliableFormWriter):
         *,
         windows,
         input_adapter: InputAdapter | None = None,
-        clipboard_factory: Callable[[], ClipboardManager] = Win32ClipboardManager,
+        clipboard_factory: Callable[[], ClipboardManager] = SafeClipboardManager,
         control_probe: Callable[[ScanJob], ControlProbe] | None = None,
         logger: Callable[[str], None] | None = None,
     ):

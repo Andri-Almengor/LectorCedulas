@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -11,6 +12,10 @@ from pathlib import Path
 from assets.runtime.hardened.atomic_io import read_json, write_json_atomic
 from assets.runtime.hardened.instance_control import signal_running_instance
 from assets.runtime.hardened.privacy import build_logger, technical_event
+from assets.runtime.hardened.runtime_state import (
+    resume_automatic_restart,
+    suspend_automatic_restart,
+)
 from assets.runtime.hardened.update_manifest import ManifestError, sha256_file, verify_manifest
 from assets.runtime.hardened.version import VERSION
 
@@ -31,6 +36,19 @@ def _wait_for_unlock(path: Path, timeout: float = 15.0) -> bool:
         except OSError:
             time.sleep(0.25)
     return False
+
+
+def _restart_application(executable: Path, install_dir: Path) -> None:
+    if not executable.is_file():
+        return
+    try:
+        subprocess.Popen(
+            [str(executable)],
+            cwd=install_dir,
+            close_fds=True,
+        )
+    except OSError:
+        pass
 
 
 def _verify_payload(payload_root: Path, files) -> None:
@@ -103,39 +121,63 @@ def apply_update(package_dir: Path, install_dir: Path, *, allow_downgrade: bool 
         allow_downgrade=allow_downgrade,
     )
     _verify_payload(payload_root, files)
-    signal_running_instance()
+
     executable = install_dir / EXECUTABLE_NAME
-    if executable.exists() and not _wait_for_unlock(executable):
-        raise UpdateError("La aplicación no cerró limpiamente o mantiene archivos bloqueados")
-    work_root = Path(tempfile.mkdtemp(prefix="dms-update-", dir=str(install_dir.parent)))
-    stage = work_root / "stage"
-    backup = work_root / "backup"
-    stage.mkdir()
-    backup.mkdir()
+    suspend_automatic_restart()
+    was_running = False
+    work_root: Path | None = None
     try:
-        _copy_to_stage(payload_root, stage, files)
-        _backup_existing(install_dir, backup, files)
-        _replace_from_stage(install_dir, stage, files)
-        _smoke_test(install_dir)
-        write_json_atomic(install_dir / "update_result.json", {"status": "ok", "version": version, "updated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, backup=False)
-        logger.info(technical_event("update_applied", version=version))
-        return version
-    except Exception:
-        _rollback(install_dir, backup, files)
-        logger.exception(technical_event("update_rolled_back", version=version))
-        raise
+        was_running = signal_running_instance()
+        if executable.exists() and not _wait_for_unlock(executable):
+            raise UpdateError("La aplicación no cerró limpiamente o mantiene archivos bloqueados")
+        work_root = Path(tempfile.mkdtemp(prefix="dms-update-", dir=str(install_dir.parent)))
+        stage = work_root / "stage"
+        backup = work_root / "backup"
+        stage.mkdir()
+        backup.mkdir()
+        try:
+            _copy_to_stage(payload_root, stage, files)
+            _backup_existing(install_dir, backup, files)
+            _replace_from_stage(install_dir, stage, files)
+            _smoke_test(install_dir)
+            write_json_atomic(
+                install_dir / "update_result.json",
+                {
+                    "status": "ok",
+                    "version": version,
+                    "updated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                },
+                backup=False,
+            )
+            logger.info(technical_event("update_applied", version=version))
+            return version
+        except Exception:
+            _rollback(install_dir, backup, files)
+            logger.exception(technical_event("update_rolled_back", version=version))
+            raise
     finally:
-        shutil.rmtree(work_root, ignore_errors=True)
+        if work_root is not None:
+            shutil.rmtree(work_root, ignore_errors=True)
+        resume_automatic_restart()
+        if was_running:
+            _restart_application(executable, install_dir)
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Actualizador seguro del Lector de Cédulas DMS")
-    parser.add_argument("--package", default=os.path.dirname(sys.executable if getattr(sys, "frozen", False) else __file__))
+    parser.add_argument(
+        "--package",
+        default=os.path.dirname(sys.executable if getattr(sys, "frozen", False) else __file__),
+    )
     parser.add_argument("--install-dir", required=True)
     parser.add_argument("--allow-downgrade", action="store_true")
     args = parser.parse_args(argv)
     try:
-        version = apply_update(Path(args.package), Path(args.install_dir), allow_downgrade=args.allow_downgrade)
+        version = apply_update(
+            Path(args.package),
+            Path(args.install_dir),
+            allow_downgrade=args.allow_downgrade,
+        )
         print(f"Actualización aplicada: {version}")
         return 0
     except (ManifestError, UpdateError, OSError, ValueError) as exc:
