@@ -58,14 +58,15 @@ def _name(value: Any, *, optional: bool = False) -> bool:
 
 
 def validate_parser_data(data: Mapping[str, Any], parser_id: str) -> QualityDecision:
-    """Valida semánticamente el resultado antes de considerarlo una persona utilizable."""
+    """Valida semánticamente el resultado antes de considerarlo utilizable."""
     if not isinstance(data, Mapping):
         return QualityDecision(False, "data_not_mapping")
 
     parser = _text(parser_id).upper()
-    if parser == "TSE_MDOC_ISO18013":
+    declared_type = _text(data.get("TipoCedulaDetectado")).upper()
+    if parser in {"TSE_MDOC_ISO18013", "TSE_MDOC_SAFE"} or declared_type == "TSE_MDOC_ISO18013":
         url = _text(data.get("DocumentoURL"))
-        if url.startswith("https://servicioidc.tse.go.cr/"):
+        if url.casefold().startswith("https://servicioidc.tse.go.cr"):
             return QualityDecision(True)
         return QualityDecision(False, "mdoc_url_invalid")
 
@@ -81,7 +82,7 @@ def validate_parser_data(data: Mapping[str, Any], parser_id: str) -> QualityDeci
         _known(data.get(label))
         for label in ("Nombre", "Apellidos", "Primer Apellido", "Segundo Apellido")
     )
-    if parser in full_person_formats or has_person_names:
+    if parser in full_person_formats or declared_type in full_person_formats or has_person_names:
         if not _name(data.get("Nombre")):
             return QualityDecision(False, "nombre_invalid")
         apellidos = _text(data.get("Apellidos"))
