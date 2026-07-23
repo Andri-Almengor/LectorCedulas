@@ -165,7 +165,9 @@ def test_reconnect_state_after_disconnect():
         frame_timeout=0.5,
     )
     manager.start()
-    time.sleep(0.15)
+    deadline = time.monotonic() + 2.0
+    while ReaderState.RECONNECTING not in states and time.monotonic() < deadline:
+        time.sleep(0.01)
     manager.stop()
     assert ReaderState.RECONNECTING in states
     assert attempts["count"] >= 1
