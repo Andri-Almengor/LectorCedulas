@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -35,6 +36,19 @@ def _wait_for_unlock(path: Path, timeout: float = 15.0) -> bool:
         except OSError:
             time.sleep(0.25)
     return False
+
+
+def _restart_application(executable: Path, install_dir: Path) -> None:
+    if not executable.is_file():
+        return
+    try:
+        subprocess.Popen(
+            [str(executable)],
+            cwd=install_dir,
+            close_fds=True,
+        )
+    except OSError:
+        pass
 
 
 def _verify_payload(payload_root: Path, files) -> None:
@@ -108,11 +122,12 @@ def apply_update(package_dir: Path, install_dir: Path, *, allow_downgrade: bool 
     )
     _verify_payload(payload_root, files)
 
+    executable = install_dir / EXECUTABLE_NAME
     suspend_automatic_restart()
+    was_running = False
     work_root: Path | None = None
     try:
-        signal_running_instance()
-        executable = install_dir / EXECUTABLE_NAME
+        was_running = signal_running_instance()
         if executable.exists() and not _wait_for_unlock(executable):
             raise UpdateError("La aplicación no cerró limpiamente o mantiene archivos bloqueados")
         work_root = Path(tempfile.mkdtemp(prefix="dms-update-", dir=str(install_dir.parent)))
@@ -144,6 +159,8 @@ def apply_update(package_dir: Path, install_dir: Path, *, allow_downgrade: bool 
         if work_root is not None:
             shutil.rmtree(work_root, ignore_errors=True)
         resume_automatic_restart()
+        if was_running:
+            _restart_application(executable, install_dir)
 
 
 def main(argv=None) -> int:
