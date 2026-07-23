@@ -9,13 +9,13 @@ from ctypes import wintypes
 from pathlib import Path
 
 from .crash_diagnostics import install_crash_diagnostics
-from .production_app import ProductionDesktopApplication
 from .runtime_state import (
     SUPERVISOR_MUTEX_NAME,
     append_supervisor_log,
     automatic_restart_suspended,
     consume_manual_exit,
 )
+from .single_scan_app import SingleScanProductionApplication
 
 WORKER_ARG = "--dms-worker"
 RECOVERY_ARG = "--dms-recovery"
@@ -79,7 +79,7 @@ def _worker_command(*, recovery: bool) -> list[str]:
 def run_worker(root_dir: str | os.PathLike[str] | None, *, recovery: bool) -> int:
     root = _application_root(root_dir)
     install_crash_diagnostics(root)
-    app = ProductionDesktopApplication(root_dir=root, recovery_mode=recovery)
+    app = SingleScanProductionApplication(root_dir=root, recovery_mode=recovery)
     return app.run()
 
 
