@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from .config_service import ConfigurationError
 from .desktop_app import DesktopApplication
 from .global_hotkeys import GlobalHotkeyService
-from .models import ReaderState
+from .models import JobState, ReaderState, ScanJob, utc_now
 from .privacy import technical_event
 from .reliable_app import ReliableDesktopApplication
 from .runtime_state import mark_manual_exit
 from .scan_quality import validate_for_configuration, validate_parser_data
+from .scan_queue import QueueFullError
 from .stress_safe_writer import StressSafeFormWriter
 from .version import PRODUCT_NAME, VERSION
 from .windows_control import WindowsControlProbe
@@ -28,6 +31,7 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
         self._last_reader_state_at = time.monotonic()
         self._last_watchdog_reconnect_at = 0.0
         self._recovery_mode = bool(recovery_mode)
+        self._configuration_transition_lock = threading.RLock()
         super().__init__(root_dir=root_dir)
 
         # Una sola tubería de parsing conserva el orden físico de los escaneos.
@@ -66,6 +70,65 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
     def _state_changed(self, state: ReaderState, detail: str) -> None:
         self._last_reader_state_at = time.monotonic()
         super()._state_changed(state, detail)
+
+    def _enqueue_validated_scan(self, raw, data, target, snapshot) -> bool:
+        if self._is_duplicate(raw):
+            self._log(technical_event("scan_duplicate_ignored"))
+            return False
+        if target is None:
+            self.last_error = "No había formulario externo activo al iniciar la lectura"
+            self._notify(
+                "Formulario no detectado",
+                "Active el formulario y vuelva a escanear",
+            )
+            return False
+        valid, reason = self.windows.validate_exact(target)
+        if not valid:
+            self.last_error = reason
+            self._notify(
+                "Formulario incorrecto",
+                "La ventana objetivo se cerró o cambió",
+            )
+            return False
+
+        job = ScanJob(
+            sequence_id=next(self.sequence),
+            created_at_utc=utc_now(),
+            raw_sha256=hashlib.sha256(raw).hexdigest(),
+            data=dict(data),
+            configuration_id=snapshot.configuration_id,
+            configuration_name=snapshot.name,
+            configuration_version=snapshot.schema_version,
+            configuration_generation=snapshot.generation,
+            write_profile=snapshot.profile,
+            target=target,
+            fields=snapshot.fields,
+            final_action=snapshot.final_action,
+            state=JobState.QUEUED,
+        )
+        try:
+            self.queue.submit(job)
+        except QueueFullError:
+            self.last_error = "Cola llena"
+            self._notify(
+                "Cola llena",
+                "La lectura no fue aceptada; espere y vuelva a escanear",
+            )
+            return False
+
+        self.last_success_utc = utc_now().strftime("%Y-%m-%d %H:%M:%SZ")
+        self._log(
+            technical_event(
+                "scan_accepted",
+                sequence_id=job.sequence_id,
+                configuration_id=job.configuration_id,
+                configuration_generation=job.configuration_generation,
+                target_hwnd=target.hwnd,
+                target_pid=target.pid,
+                queue_size=self.queue.status().queued,
+            )
+        )
+        return True
 
     def _process_scan_async(self, raw, target, identity) -> None:
         try:
@@ -107,49 +170,85 @@ class ProductionDesktopApplication(ReliableDesktopApplication):
                 )
                 return
 
-            try:
-                snapshot = self.config.load_active()
-            except ConfigurationError as exc:
-                self.last_error = str(exc)
-                self.serial.confirm_rejected(raw, "configuration_invalid")
-                self._notify(
-                    "Configuración inválida",
-                    "Corrija o seleccione una configuración antes de escanear.",
-                )
-                self._log(
-                    technical_event(
-                        "configuration_invalid_before_queue",
-                        error_type=type(exc).__name__,
+            # El snapshot y el submit forman una sola transición respecto a los atajos.
+            with self._configuration_transition_lock:
+                try:
+                    snapshot = self.config.load_active()
+                except ConfigurationError as exc:
+                    self.last_error = str(exc)
+                    self.serial.confirm_rejected(raw, "configuration_invalid")
+                    self._notify(
+                        "Configuración inválida",
+                        "Corrija o seleccione una configuración antes de escanear.",
                     )
-                )
-                return
-
-            configuration_quality = validate_for_configuration(data, snapshot.fields)
-            if not configuration_quality.accepted:
-                self.last_error = f"Datos insuficientes: {configuration_quality.reason}"
-                self.serial.confirm_rejected(
-                    raw,
-                    f"configuration_quality:{configuration_quality.reason}",
-                )
-                self._notify(
-                    "Datos insuficientes",
-                    "La configuración activa requiere más datos. No se escribió nada.",
-                )
-                self._log(
-                    technical_event(
-                        "scan_configuration_rejected",
-                        parser_id=result.parser_id,
-                        configuration_id=snapshot.configuration_id,
-                        configuration_generation=snapshot.generation,
-                        reason=configuration_quality.reason,
+                    self._log(
+                        technical_event(
+                            "configuration_invalid_before_queue",
+                            error_type=type(exc).__name__,
+                        )
                     )
-                )
-                return
+                    return
 
-            self.serial.confirm_accepted(identity)
-            self._on_scan(raw, data, target)
+                configuration_quality = validate_for_configuration(
+                    data,
+                    snapshot.fields,
+                )
+                if not configuration_quality.accepted:
+                    self.last_error = (
+                        f"Datos insuficientes: {configuration_quality.reason}"
+                    )
+                    self.serial.confirm_rejected(
+                        raw,
+                        f"configuration_quality:{configuration_quality.reason}",
+                    )
+                    self._notify(
+                        "Datos insuficientes",
+                        "La configuración activa requiere más datos. No se escribió nada.",
+                    )
+                    self._log(
+                        technical_event(
+                            "scan_configuration_rejected",
+                            parser_id=result.parser_id,
+                            configuration_id=snapshot.configuration_id,
+                            configuration_generation=snapshot.generation,
+                            reason=configuration_quality.reason,
+                        )
+                    )
+                    return
+
+                if self._enqueue_validated_scan(raw, data, target, snapshot):
+                    self.serial.confirm_accepted(identity)
         finally:
             self._processing_slots.release()
+
+    def _change_configuration(self, name: str) -> None:
+        with self._configuration_transition_lock:
+            generation = self.config.set_active(name)
+            removed = self.queue.cancel_for_configuration_change(generation)
+        self._notify("Configuración cambiada", Path(name).stem)
+        self._log(
+            technical_event(
+                "configuration_changed",
+                configuration_generation=generation,
+                pending_cancelled=removed,
+            )
+        )
+
+    def _toggle_favorites(self, icon=None, item=None) -> None:
+        try:
+            with self._configuration_transition_lock:
+                target, generation = self.config.toggle_favorite()
+                removed = self.queue.cancel_for_configuration_change(generation)
+            self._notify("Configuración cambiada", Path(target).stem)
+            self._log(
+                technical_event(
+                    "configuration_favorite_toggled",
+                    configuration_generation=generation,
+                    pending_cancelled=removed,
+                )
+            )
+        except ConfigurationError as exc:
+            self._notify("Favoritas no configuradas", str(exc))
 
     def _emergency_hotkey_loop(self) -> None:
         def cancel_current() -> None:
