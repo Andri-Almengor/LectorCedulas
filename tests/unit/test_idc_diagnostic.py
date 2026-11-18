@@ -11,7 +11,7 @@ def test_mdoc_candidate_does_not_claim_verification():
     assert result["classification"] == "mdoc_candidate"
     assert result["base64url_valid"] is True
     assert result["decoded_bytes"] == 4
-    assert result["cbor_initial_major_type"] == "map"
+    assert result["cbor_initial_major_type"] == "array"
     assert result["verified_identity"] is False
     assert "gwECAw" not in json.dumps(result)
 
