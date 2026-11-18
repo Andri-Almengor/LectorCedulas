@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -57,7 +59,9 @@ def test_expired_license(tmp_path):
 
 def test_signature_modified(tmp_path):
     verifier, envelope, path, *_ = setup_license(tmp_path)
-    envelope["signature"] = "A" + envelope["signature"][1:]
+    signature = bytearray(base64.b64decode(envelope["signature"], validate=True))
+    signature[0] ^= 0x01
+    envelope["signature"] = base64.b64encode(signature).decode("ascii")
     write_json_atomic(path, envelope, backup=False)
     with pytest.raises(LicenseError, match="firma"):
         verifier.verify()
