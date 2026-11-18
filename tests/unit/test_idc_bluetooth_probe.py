@@ -18,7 +18,7 @@ def _runner(output: str, code: int = 0):
 
 
 def test_detected_bluetooth_still_does_not_claim_ble_support():
-    report = probe_bluetooth(system_name="Windows", runner=_runner("PRESENT\\n"))
+    report = probe_bluetooth(system_name="Windows", runner=_runner("PRESENT" + chr(10)))
     assert report["bluetooth_class_status"] == "detected"
     assert report["ble_session_supported"] == "not_tested"
     assert report["idc_verification_available"] is False
