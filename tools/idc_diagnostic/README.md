@@ -53,8 +53,17 @@ NO muestra los bytes originales.
 
 - `mdoc_candidate` solo significa que la lectura parece tener el prefijo `mdoc:`;
   NO implica que provenga de una IDC auténtica.
-- El primer byte CBOR no permite validar la estructura completa ni su firma.
+- El diagnóstico ahora analiza la estructura CBOR (límites estrictos), detecta **candidatos** de perfil ISO 23220 (mapa) o ISO 18013 (arreglo) y enumera solo métodos de transporte conocidos. **No certifica conformidad** ni firma.
+- `transport_candidates` indica solamente métodos anunciados en una estructura reconocida; no asegura conexión ni compatibilidad con el TSE.
 - El lector físico puede limitar el tamaño de datos transferidos. Si se corta,
   estudiar el firmware y sus tiempos; no forzar su integración en producción.
 - Conectar por BLE, confiar en certificados y obtener atributos autorizados
   requiere un SDK o implementación verificada y una fase posterior.
+
+## Segunda lectura para confirmar el transporte
+
+Ejecutar nuevamente el mismo comando con la rama actualizada del PR #22.
+El informe incluirá `cbor_structure_decoded`, `cbor_profile_hint`,
+`known_engagement_fields_present` y `transport_candidates`.
+El perfil es solo una hipótesis estructural; el SDK autorizado debe realizar
+la autenticación criptográfica antes de obtener datos de una persona.
