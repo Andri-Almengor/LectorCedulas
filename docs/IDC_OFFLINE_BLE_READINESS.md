@@ -12,6 +12,18 @@ En **Administrador de dispositivos** comprobar si existe la categoría
 **Bluetooth**, si el adaptador está habilitado y si Windows muestra
 errores de controlador. No confundir un lector QR USB con un radio BLE.
 
+O usar la herramienta de diagnóstico agregada al repositorio:
+
+```powershell
+py -m tools.idc_diagnostic --bluetooth-check
+```
+
+No realiza emparejamiento ni búsqueda de dispositivos. Devuelve `detected`
+si Windows enumera al menos un dispositivo de la clase Bluetooth con estado
+OK. Un resultado `detected` **no demuestra que exista un radio BLE apto para
+ISO 23220**, que esté disponible el perfil correcto ni que funcione
+la sesión de IDC. `unknown` no debe interpretarse como ausencia física.
+
 Alternativamente, desde PowerShell local:
 
 ```powershell
@@ -71,3 +83,24 @@ al instante. Reglas de revocación/caducidad y confianza local deben definirse
 antes de producción. El respaldo `backup/pre-idc-4.0.0-qa8-2026-11-18`
 permanece disponible para recuperar el código original, mientras que los
 archivos y licencias instalados localmente exigen respaldo adicional.
+
+## Estrategia para instalaciones sin Bluetooth
+
+**Funcionalidades que deben seguir disponibles**
+- Código de barras y QR de cédulas físicas mediante lector COM/HID actual.
+- Registro de visitantes mediante los flujos existentes.
+- Si la IDC no puede verificarse por el nuevo componente, no completar
+  automáticamente identidad desde `mdoc:` o una URL parcial.
+
+**Alternativas IDC**
+1. Verificación con el aplicativo oficial en un equipo institucional compatible
+   y registro manual de datos autorizados en el sistema de visitantes.
+2. Evaluar adaptador USB BLE compatible, solo si el SDK exige BLE y funciona
+   con el sistema operativo y controladores instalados.
+3. Evaluar NFC solo cuando existan lector NFC, software y autorizaciones
+   que lo soporten; el lector QR tradicional no funciona como lector NFC.
+
+Para la futura interfaz: aislar módulo IDC del resto de parsers.
+Si no se detecta radio o falla el motor de verificación, mostrar un estado
+de `IDC no disponible en este equipo` y conservar las demás lecturas.
+Nunca registrar una IDC como autenticada sin prueba criptográfica.

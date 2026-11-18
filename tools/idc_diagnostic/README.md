@@ -75,3 +75,26 @@ indicó `transport_candidates: ["BLE", "NFC"]` en mapa CBOR.
 **No significa que el teléfono y Windows estén emparejados o que se haya
 verificado la identidad.** Para continuar, revisar
 `docs/IDC_OFFLINE_BLE_READINESS.md`.
+
+## Equipos que pueden NO tener Bluetooth
+
+**Bluetooth no es obligatorio para leer las cédulas físicas actuales.**
+El QR de IDC anunció los métodos BLE y NFC, pero no existe todavía un
+motor de verificación ni se ha confirmado soporte BLE/GATT de Windows.
+
+Para inspeccionar el estado general del equipo sin detectar celulares próximos:
+
+```powershell
+py -m tools.idc_diagnostic --bluetooth-check
+```
+
+El JSON solo informa `bluetooth_class_status` (`detected`,
+`not_detected`, `unknown` o `not_applicable`). Aun con `detected`,
+`ble_session_supported` sigue siendo `not_tested` y
+`idc_verification_available` es `false`.
+
+**Sin Bluetooth:** continuar usando el lector DMS para documentos físicos.
+Para visitantes con IDC utilizar el verificador oficial disponible en
+un dispositivo institucional compatible y hacer registro manual hasta contar
+con una integración certificada. Un adaptador BLE USB o lector NFC solo se
+justificará después de confirmar el SDK y las especificaciones.
