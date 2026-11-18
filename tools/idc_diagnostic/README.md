@@ -62,8 +62,16 @@ NO muestra los bytes originales.
 
 ## Segunda lectura para confirmar el transporte
 
-Ejecutar nuevamente el mismo comando con la rama actualizada del PR #22.
+Ejecutar nuevamente el mismo comando con la versión que incluye el analizador estructural (PR #23 o posteriores).
 El informe incluirá `cbor_structure_decoded`, `cbor_profile_hint`,
 `known_engagement_fields_present` y `transport_candidates`.
 El perfil es solo una hipótesis estructural; el SDK autorizado debe realizar
 la autenticación criptográfica antes de obtener datos de una persona.
+
+## Resultado de campo y siguientes pruebas
+
+La segunda lectura real (solo metadatos, `docs/IDC_REAL_SAMPLE_2026-11-18.md`)
+indicó `transport_candidates: ["BLE", "NFC"]` en mapa CBOR.
+**No significa que el teléfono y Windows estén emparejados o que se haya
+verificado la identidad.** Para continuar, revisar
+`docs/IDC_OFFLINE_BLE_READINESS.md`.

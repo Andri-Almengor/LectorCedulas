@@ -107,3 +107,19 @@ def test_structural_traversal_is_bounded():
     report = inspect_qr(_synthetic_mdoc(nested))
     assert report["cbor_structure_decoded"] is False
     assert report["verified_identity"] is False
+
+
+def test_four_field_map_announces_ble_and_nfc_without_identity_verification():
+    # Muestra SINTÉTICA: {0: "1.0", 1: [1, h'00'],
+    # 2: [[2, 1, {}], [1, 1, {}]], 3: []}; no contiene datos reales.
+    synthetic = bytes.fromhex("a40063312e3001820141000282830201a0830101a00380")
+    raw = _synthetic_mdoc(synthetic)
+    result = inspect_qr(raw)
+    assert result["classification"] == "mdoc_candidate"
+    assert result["cbor_structure_decoded"] is True
+    assert result["cbor_root_items"] == 4
+    assert result["known_engagement_fields_present"] == [0, 1, 2, 3]
+    assert result["cbor_profile_hint"] == "iso_23220_map_shape_candidate"
+    assert result["transport_candidates"] == ["BLE", "NFC"]
+    assert result["verified_identity"] is False
+    assert "mdoc:" not in json.dumps(result)
