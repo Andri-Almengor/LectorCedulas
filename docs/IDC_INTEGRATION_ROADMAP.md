@@ -5,9 +5,9 @@
 - Verificación IDC offline: contemplada por el TSE mediante su aplicativo oficial.
 - Un QR `mdoc:` por sí mismo NO prueba una identidad ni los datos del titular.
 - Primera captura: `mdoc:` + Base64URL válido (220 bytes), primer tipo CBOR `map`.
-- Estructura CBOR completa, perfil oficial del TSE y transporte real: pendientes de diagnóstico ampliado y validación autorizada.
-- BLE/NFC, certificados de confianza, SDK oficial Windows y permisos de integración:
-  pendientes de confirmación oficial.
+- Segunda captura real: mapa CBOR estructuralmente válido, campos `0, 1, 2, 3`; métodos de transporte anunciados: **BLE y NFC**.
+- Perfil ISO/IEC TS 23220 inferido solo por su forma; conformidad oficial, conexión y verificación real siguen pendientes.
+- Métodos BLE/NFC anunciados: **confirmados por diagnóstico local**; uso obligatorio, compatibilidad del adaptador Windows, certificados de confianza, SDK oficial y permisos de integración: pendientes.
 - No se ha adquirido ni integrado ningún SDK del TSE/GET Group.
 - No se promete costo cero del SDK; tampoco tiempos definitivos.
 - Nunca tratar una URL extraída de un mDoc como comprobante de identidad.
@@ -16,13 +16,13 @@
 
 **4.0.0-qa8: respaldo fijo.** Lectura de documentos físicos y QR URL actuales.
 
-**4.0.0-qa9: presente PR.**
+**4.0.0-qa9: diagnóstico incorporado en main (PR #22 y #23).**
 - Diagnóstico local independiente COM/HID, sin capturar ni guardar QR bruto.
 - Identificación limitada de formato `mdoc:`; sin decodificar atributos.
 - Bloqueo explícito de mDoc no verificado dentro del parser principal.
 - Preservación de formatos físicos y de la consulta URL TSE existente.
 
-**4.0.0-qa10: posterior a muestra y acuerdo de SDK.**
+**4.0.0-qa10: próxima etapa, posterior a validación del SDK y prueba de BLE.**
 - Verificador offline autorizado en componente independiente, con política fail-closed.
 - Validación de firma, emisor, sesión, vigencia y reglas de datos consentidos.
 - Pruebas con documentos sintéticos, negativos y reproducción de sesiones.
