@@ -5,6 +5,8 @@ import base64
 import binascii
 import re
 
+from .cbor_structure import inspect_cbor_structure
+
 MAX_SCAN_BYTES = 32768
 _MDOC_BODY = re.compile(rb"[A-Za-z0-9_-]+={0,2}\Z")
 _CBOR_MAJOR = {
@@ -65,7 +67,8 @@ def inspect_qr(raw: bytes) -> dict[str, object]:
         if decoded:
             report["cbor_initial_major_type"] = _CBOR_MAJOR.get(decoded[0] >> 5, "unknown")
             report["cbor_indefinite_length"] = (decoded[0] & 31) == 31
-        # No examina claves de sesión, certificados ni atributos personales.
+        report.update(inspect_cbor_structure(decoded))
+        # El análisis estructural NO autentica el documento.
         return report
 
     if text.casefold().startswith(("https://", "http://")):

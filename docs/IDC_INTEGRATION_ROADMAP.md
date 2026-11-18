@@ -4,7 +4,8 @@
 
 - Verificación IDC offline: contemplada por el TSE mediante su aplicativo oficial.
 - Un QR `mdoc:` por sí mismo NO prueba una identidad ni los datos del titular.
-- Formato exacto del QR del TSE en producción: pendiente de captura autorizada.
+- Primera captura: `mdoc:` + Base64URL válido (220 bytes), primer tipo CBOR `map`.
+- Estructura CBOR completa, perfil oficial del TSE y transporte real: pendientes de diagnóstico ampliado y validación autorizada.
 - BLE/NFC, certificados de confianza, SDK oficial Windows y permisos de integración:
   pendientes de confirmación oficial.
 - No se ha adquirido ni integrado ningún SDK del TSE/GET Group.
