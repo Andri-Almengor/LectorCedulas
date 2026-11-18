@@ -54,7 +54,8 @@ def test_mdoc_safe_alias_is_preserved():
         "DocumentoURL": "https://servicioidc.tse.go.cr/Iso18013/documento",
     }
     decision = validate_parser_data(data, "TSE_MDOC_SAFE")
-    assert decision.accepted
+    assert not decision.accepted
+    assert decision.reason == "idc_not_cryptographically_verified"
 
 
 def test_mdoc_rejects_untrusted_or_missing_url():
@@ -65,7 +66,7 @@ def test_mdoc_rejects_untrusted_or_missing_url():
     }
     decision = validate_parser_data(data, "TSE_MDOC_SAFE")
     assert not decision.accepted
-    assert decision.reason == "mdoc_url_invalid"
+    assert decision.reason == "idc_not_cryptographically_verified"
 
 
 def test_impossible_date_is_rejected_semantically():

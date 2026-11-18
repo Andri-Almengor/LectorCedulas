@@ -119,6 +119,10 @@ class ParserService:
         return None
 
     def parse(self, raw: bytes) -> ParserResult:
+        # Un QR mdoc inicia una sesión; NO acredita identidad ni autoriza escritura.
+        # La ruta legacy que extrae URLs queda excluida hasta contar con un SDK validado.
+        if isinstance(raw, bytes) and raw.strip().lower().startswith(b"mdoc:"):
+            return ParserResult({}, False, "IDC_ENGAGEMENT_UNVERIFIED")
         if self.format_engine is not None:
             try:
                 match = self.format_engine.parse(raw)

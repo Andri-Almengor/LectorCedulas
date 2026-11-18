@@ -64,11 +64,11 @@ def validate_parser_data(data: Mapping[str, Any], parser_id: str) -> QualityDeci
 
     parser = _text(parser_id).upper()
     declared_type = _text(data.get("TipoCedulaDetectado")).upper()
-    if parser in {"TSE_MDOC_ISO18013", "TSE_MDOC_SAFE"} or declared_type == "TSE_MDOC_ISO18013":
-        url = _text(data.get("DocumentoURL"))
-        if url.casefold().startswith("https://servicioidc.tse.go.cr"):
-            return QualityDecision(True)
-        return QualityDecision(False, "mdoc_url_invalid")
+    # Ni el prefijo mdoc ni una URL extraída son pruebas criptográficas.
+    if parser in {"TSE_MDOC_ISO18013", "TSE_MDOC_SAFE", "IDC_ENGAGEMENT_UNVERIFIED"}:
+        return QualityDecision(False, "idc_not_cryptographically_verified")
+    if declared_type == "TSE_MDOC_ISO18013":
+        return QualityDecision(False, "idc_not_cryptographically_verified")
 
     if not _cedula(data.get("Cedula")):
         return QualityDecision(False, "cedula_invalid")

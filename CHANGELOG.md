@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.0.0-qa9 — 2026-11-18 (IDC: diagnóstico aislado, SIN verificación)
+
+- Respaldo Git de 4.0.0-qa8 antes de cualquier integración IDC.
+- Añadido `python -m tools.idc_diagnostic` para captura local serial COM / teclado HID.
+- El diagnóstico solo produce metadatos; sin QR, URL, tokens ni datos personales.
+- Toda cadena `mdoc:` detectada queda explícitamente no verificada en el runtime.
+- No existe todavía motor de verificación BLE/NFC, firmas o certificados de IDC.
+- El lector físico y los parsers anteriores mantienen su ruta de procesamiento.
+- Se agregaron pruebas de no filtración de datos y rechazo de mDoc no verificado.
+
+
 ## 4.0.0-qa8 — 2026-07-23
 
 ### Ciclo único de lectura
