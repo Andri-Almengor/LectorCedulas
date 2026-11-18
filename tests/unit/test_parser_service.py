@@ -34,6 +34,12 @@ def test_fake_tse_domain_is_not_accepted_as_tse():
 
 def test_mdoc_requires_exact_service_host():
     payload = base64.urlsafe_b64encode(b"x https://servicioidc.tse.go.cr/api/test y").rstrip(b"=")
-    assert service().parse(b"mdoc:" + payload).parser_id == "TSE_MDOC_SAFE"
+    legitimate = service().parse(b"mdoc:" + payload)
+    assert legitimate.parser_id == "IDC_ENGAGEMENT_UNVERIFIED"
+    assert not legitimate.recognized
+    assert legitimate.data == {}
     evil = base64.urlsafe_b64encode(b"https://servicioidc.tse.go.cr.evil.test/x").rstrip(b"=")
-    assert service().parse(b"mdoc:" + evil).parser_id == "ADULTO_XOR"
+    suspicious = service().parse(b"mdoc:" + evil)
+    assert suspicious.parser_id == "IDC_ENGAGEMENT_UNVERIFIED"
+    assert not suspicious.recognized
+    assert suspicious.data == {}
