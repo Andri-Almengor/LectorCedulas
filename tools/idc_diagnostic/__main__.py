@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 
+from .bluetooth_probe import probe_bluetooth
 from .capture import available_ports, capture_keyboard, capture_serial
 from .inspect import MAX_SCAN_BYTES, inspect_qr
 
@@ -27,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--list-ports", action="store_true", help="Lista puertos seriales disponibles")
+    source.add_argument("--bluetooth-check", action="store_true", help="Estado Bluetooth local, sin buscar móviles")
     source.add_argument("--port", help="Lector USB/serial, por ejemplo COM3")
     source.add_argument("--keyboard", action="store_true", help="Lector USB que escribe como teclado")
     source.add_argument("--sample-file", help="Muestra local para pruebas; no compartir el archivo")
@@ -38,6 +40,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.list_ports:
             for device in available_ports():
                 print(device)
+            return 0
+        if args.bluetooth_check:
+            report = probe_bluetooth()
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            if args.output:
+                _write_report(args.output, report)
             return 0
         if args.port:
             raw = capture_serial(args.port, baudrate=args.baudrate, timeout_seconds=args.timeout)
