@@ -161,3 +161,43 @@ def test_scanner_filters_to_qr_uuid_and_disconnects(monkeypatch):
     assert asyncio.run(_connect_to_qr_service(UUID_TEST, 3.0)) == (True, True)
     assert observed["services"] == [str(UUID_TEST)]
     assert observed["disconnected"] is True
+
+
+def test_cli_passes_custom_ble_scan_window_without_printing_qr(monkeypatch, capsys):
+    from tools.idc_diagnostic.__main__ import main
+
+    seen = {}
+    monkeypatch.setattr(
+        "tools.idc_diagnostic.__main__.capture_serial",
+        lambda port, baudrate, timeout_seconds: b"mdoc:synthetic-only",
+    )
+
+    def fake_probe(raw, *, consent, timeout_seconds):
+        seen.update(consent=consent, timeout=timeout_seconds)
+        assert raw == b"mdoc:synthetic-only"
+        return {"verified_identity": False, "link_status": "service_not_found"}
+
+    monkeypatch.setattr("tools.idc_diagnostic.__main__.probe_mdoc_ble_link", fake_probe)
+    assert main([
+        "--ble-link-check", "--port", "COM8", "--consent",
+        "--ble-scan-seconds", "30",
+    ]) == 0
+    captured = capsys.readouterr().out
+    assert seen == {"consent": True, "timeout": 30.0}
+    assert "synthetic-only" not in captured
+    assert '"verified_identity": false' in captured
+
+
+def test_cli_rejects_invalid_ble_scan_window_before_reading(monkeypatch):
+    import pytest
+    from tools.idc_diagnostic.__main__ import main
+
+    def no_scan(**_kwargs):
+        raise AssertionError("serial capture must not start for invalid args")
+
+    monkeypatch.setattr("tools.idc_diagnostic.__main__.capture_serial", no_scan)
+    with pytest.raises(SystemExit):
+        main([
+            "--ble-link-check", "--port", "COM8", "--consent",
+            "--ble-scan-seconds", "100",
+        ])

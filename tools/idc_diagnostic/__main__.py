@@ -38,11 +38,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baudrate", type=int, default=9600)
     parser.add_argument("--timeout", type=float, default=25.0)
     parser.add_argument("--ble-link-check", action="store_true", help="Prueba enlace BLE al QR (requiere --port y --consent)")
+    parser.add_argument("--ble-scan-seconds", type=float, default=18.0, help="Duración de búsqueda BLE dirigida (3 a 30 segundos; predeterminado 18)")
     parser.add_argument("--consent", action="store_true", help="Declara consentimiento del titular para prueba BLE presencial")
     parser.add_argument("--output", help="Guardar solo metadatos JSON; archivo nuevo")
     args = parser.parse_args(argv)
     if args.ble_link_check and (not args.port or not args.consent):
         parser.error("--ble-link-check requiere --port COMx y --consent")
+    if args.ble_link_check and not 3 <= args.ble_scan_seconds <= 30:
+        parser.error("--ble-scan-seconds debe estar entre 3 y 30")
     try:
         if args.list_ports:
             for device in available_ports():
@@ -65,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("Presente el QR de la IDC autorizada al lector COM. No se guardará.")
             raw = capture_serial(args.port, baudrate=args.baudrate, timeout_seconds=args.timeout)
             if args.ble_link_check:
-                report = probe_mdoc_ble_link(raw, consent=True)
+                report = probe_mdoc_ble_link(raw, consent=True, timeout_seconds=args.ble_scan_seconds)
                 print(json.dumps(report, ensure_ascii=False, indent=2))
                 if args.output:
                     _write_report(args.output, report)

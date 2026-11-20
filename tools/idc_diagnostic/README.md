@@ -197,3 +197,37 @@ La integración con SDK autorizado por TSE/GET Group sigue siendo necesaria.
 **Alcance y privacidad:** la búsqueda BLE se limita al identificador de servicio
 obtenido del QR presentado por el titular; no se guardan identificadores ni
 resultados de otros dispositivos. Compartir solo el JSON técnico del resultado.
+
+## Cuando se recibe `service_not_found`
+
+`service_not_found` significa que en la ventana de escaneo no llegó un anuncio
+con el UUID temporal del QR. **No es prueba de fallo del radio ni de identidad
+inválida**. El QR puede anunciar un servicio que todavía no esté transmitiéndose.
+
+Realizar un intento controlado de laboratorio:
+
+1. Cerrar la aplicación principal que usa el puerto COM y dejar Bluetooth
+   encendido y autorizado en ambos dispositivos.
+2. Abrir en el teléfono la presentación de la IDC y generar un **QR vigente**,
+   con el teléfono desbloqueado y la aplicación en primer plano.
+3. Colocar el teléfono cerca del adaptador y ejecutar con el puerto real:
+
+```powershell
+py -m tools.idc_diagnostic --ble-link-check --port COMx --consent --ble-scan-seconds 30
+```
+
+No aumentar `--timeout` pensando que alarga el escaneo BLE: ese parámetro
+controla la **captura serial**, no la búsqueda Bluetooth. La ventana BLE se
+modifica exclusivamente mediante `--ble-scan-seconds` (3–30 segundos).
+
+Si vuelve a aparecer `service_not_found`, efectuar por separado una prueba
+con la **aplicación Verificador IDC oficial** en otro equipo compatible y con
+consentimiento. El éxito de la aplicación oficial puede ayudar a distinguir
+un problema de publicidad del teléfono de uno de interoperabilidad en Windows;
+**no autoriza extraer datos de la aplicación oficial**.
+
+**No** activar escaneos abiertos de todos los dispositivos, no publicar UUID,
+direcciones MAC ni el QR, y no emparejar manualmente el teléfono desde la
+configuración Bluetooth como sustituto de la negociación mdoc. Si el
+transporte sigue sin aparecer, la siguiente etapa requiere revisar el
+comportamiento real de la aplicación IDC y obtener el SDK autorizado.

@@ -153,3 +153,19 @@ mensaje categórico y no intenta cambiar el rol de Windows.
 No se realiza negociación mdoc, no se envían solicitudes de atributos,
 no se extraen cédulas, no se confía en firmas y no se escribe el formulario.
 Un resultado de enlace BLE exitoso deja pendientes autenticación y SDK.
+
+## Incidencia documentada — servicio del QR no observado
+
+Después de capturar QR `mdoc:` con modo periférico y UUID presentes,
+la primera búsqueda BLE en Windows devolvió `service_not_found`.
+El adaptador Windows declaró soporte LE y roles central/periférico, pero
+**no se observó publicidad BLE del servicio temporal durante 18 segundos**.
+
+Primero ampliar la **ventana dirigida**, sin buscar otros dispositivos:
+```powershell
+py -m tools.idc_diagnostic --ble-link-check --port COMx --consent --ble-scan-seconds 30
+```
+Usar el puerto COM real y un QR recién presentado. Si vuelve a fallar,
+comparar por separado con el verificador oficial (previo consentimiento).
+Un resultado fallido aquí no demuestra que la IDC no se pueda verificar
+offline, y no obliga a instalar hardware nuevo en clientes.
