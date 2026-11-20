@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from .ble_capabilities import probe_ble_capabilities
+from .ble_link_probe import probe_mdoc_ble_link
 from .bluetooth_probe import probe_bluetooth
 from .capture import available_ports, capture_keyboard, capture_serial
 from .inspect import MAX_SCAN_BYTES, inspect_qr
@@ -36,8 +37,12 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--sample-file", help="Muestra local para pruebas; no compartir el archivo")
     parser.add_argument("--baudrate", type=int, default=9600)
     parser.add_argument("--timeout", type=float, default=25.0)
+    parser.add_argument("--ble-link-check", action="store_true", help="Prueba enlace BLE al QR (requiere --port y --consent)")
+    parser.add_argument("--consent", action="store_true", help="Declara consentimiento del titular para prueba BLE presencial")
     parser.add_argument("--output", help="Guardar solo metadatos JSON; archivo nuevo")
     args = parser.parse_args(argv)
+    if args.ble_link_check and (not args.port or not args.consent):
+        parser.error("--ble-link-check requiere --port COMx y --consent")
     try:
         if args.list_ports:
             for device in available_ports():
@@ -56,7 +61,15 @@ def main(argv: list[str] | None = None) -> int:
                 _write_report(args.output, report)
             return 0
         if args.port:
+            if args.ble_link_check:
+                print("Presente el QR de la IDC autorizada al lector COM. No se guardará.")
             raw = capture_serial(args.port, baudrate=args.baudrate, timeout_seconds=args.timeout)
+            if args.ble_link_check:
+                report = probe_mdoc_ble_link(raw, consent=True)
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+                if args.output:
+                    _write_report(args.output, report)
+                return 0
         elif args.keyboard:
             raw = capture_keyboard()
         else:

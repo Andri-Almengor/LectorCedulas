@@ -152,3 +152,48 @@ Aunque todas las capacidades sean verdaderas, `idc_session_verified`,
 
 El diagnóstico anterior `--bluetooth-check` y las lecturas de cédulas
 físicas **siguen funcionando sin PyWinRT**.
+
+## Prueba presencial y consentida del enlace BLE (experimental)
+
+Esta prueba **no es un lector IDC**, no verifica identidad ni recupera atributos.
+Solo intenta localizar el **servicio específico anunciado por el QR** y abrir
+brevemente una conexión BLE, que se cierra automáticamente. No enumera nombres,
+MAC, servicios ajenos ni características GATT. No almacena el QR ni el UUID.
+
+Instalar **solo en una computadora de laboratorio**, no en producción:
+
+```powershell
+py -m pip install -r requirements-idc-ble-lab.txt
+```
+
+Cerrar la aplicación principal DMS, activar Bluetooth en Windows y tener la
+aplicación IDC oficial abierta con el QR dinámico de una persona que **haya
+autorizado expresamente la prueba**.
+
+```powershell
+py -m tools.idc_diagnostic --ble-link-check --port COM3 --consent
+```
+
+Sustituir `COM3` por el puerto real. La herramienta usa únicamente la
+modalidad COM para evitar que un escáner HID imprima el QR en la terminal.
+El QR se procesa en memoria y no se escribe en archivos o terminal.
+
+Interpretaciones principales:
+
+- `link_opened_then_closed`: conexión BLE breve exitosa, **no** sesión mdoc.
+- `service_not_found`: no se vio el UUID anunciado durante la ventana de
+  escaneo; puede deberse a que el teléfono no anunció aún el servicio,
+  restricciones de Windows o que el flujo utiliza otro modo BLE.
+- `phone_central_mode_only`: el QR requiere que el verificador actúe como
+  periférico; esta prueba no implementa ese modo.
+- `missing_peripheral_uuid`: falta el UUID esperado para este modo.
+- `bleak_not_installed` / `cbor2_not_installed`: falta paquete opcional.
+- `bluetooth_connection_error`: enlace fallido sin imprimir datos del móvil.
+
+En todos los casos `verified_identity=false`,
+`mdoc_session_established=false` e `idc_verification_available=false`.
+La integración con SDK autorizado por TSE/GET Group sigue siendo necesaria.
+
+**Alcance y privacidad:** la búsqueda BLE se limita al identificador de servicio
+obtenido del QR presentado por el titular; no se guardan identificadores ni
+resultados de otros dispositivos. Compartir solo el JSON técnico del resultado.

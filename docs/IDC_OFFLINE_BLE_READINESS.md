@@ -132,3 +132,24 @@ El QR observado anuncia BLE/NFC, pero el rol exacto de la sesión debe
 deducirse de las opciones completas del engagement con un motor compatible.
 Si el adaptador soporta rol central, solo se supera la prueba de hardware:
 NO confirma que la IDC o el SDK establezcan sesión correctamente.
+
+## Prueba posterior: enlace BLE real a servicio anunciado en QR
+
+Esta operación requiere consentimiento expreso del titular de la IDC,
+Bluetooth activado, lector COM y los paquetes opcionales incluidos en
+`requirements-idc-ble-lab.txt`. Ejecutar únicamente en un equipo de
+laboratorio, no en el puesto del cliente.
+
+```powershell
+py -m pip install -r requirements-idc-ble-lab.txt
+py -m tools.idc_diagnostic --ble-link-check --port COM3 --consent
+```
+
+La utilidad solo intenta conectar con el servicio que anuncia ese QR
+para el modo en que el **teléfono actúa como periférico BLE**.
+Si el QR anuncia solo teléfono central, la prueba se detiene con un
+mensaje categórico y no intenta cambiar el rol de Windows.
+
+No se realiza negociación mdoc, no se envían solicitudes de atributos,
+no se extraen cédulas, no se confía en firmas y no se escribe el formulario.
+Un resultado de enlace BLE exitoso deja pendientes autenticación y SDK.
