@@ -1,5 +1,13 @@
 # Changelog
 
+## Hotfix diagnóstico IDC — 2026-11-20 (pendiente de fusión)
+- Evita cargar automáticamente el constructor de instaladores y sus dependencias
+  criptográficas al iniciar el diagnóstico IDC.
+- Mantiene la guarda Inno Setup al importar explícitamente `release_builder`.
+- Tests de aislamiento real usando Python `-S` sin paquetes del entorno.
+- No modifica lectura de cédulas físicas, flujo de licencias ni versión instalada.
+
+
 ## 4.0.0-qa9 — 2026-11-18 (IDC: diagnóstico aislado, SIN verificación)
 
 - Respaldo Git de 4.0.0-qa8 antes de cualquier integración IDC.

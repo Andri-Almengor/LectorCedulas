@@ -54,6 +54,8 @@ def _install_release_builder_guard():
 # Se importa y protege de forma anticipada porque varios consumidores usan
 # ``from tools.release_builder import ...`` y necesitan la guarda antes de
 # obtener las funciones del submódulo.
-release_builder = _install_release_builder_guard()
+# No importar release_builder en la inicialización del paquete.
+# El submódulo aplica la guarda cuando se solicita explícitamente.
+# Así los diagnósticos locales no requieren bibliotecas de licencias.
 
 __all__ = ["release_builder"]

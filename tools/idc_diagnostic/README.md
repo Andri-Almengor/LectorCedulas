@@ -98,3 +98,25 @@ Para visitantes con IDC utilizar el verificador oficial disponible en
 un dispositivo institucional compatible y hacer registro manual hasta contar
 con una integración certificada. Un adaptador BLE USB o lector NFC solo se
 justificará después de confirmar el SDK y las especificaciones.
+
+## Corrección del arranque: biblioteca `cryptography` no instalada
+
+En algunas instalaciones, `py -m tools.idc_diagnostic --bluetooth-check`
+fallaba antes de abrir el diagnóstico porque `tools/__init__.py` importaba
+el constructor de paquetes, que requería `cryptography`.
+
+A partir de esta corrección, el diagnóstico Bluetooth y la clasificación de
+muestras pueden arrancar con la **biblioteca estándar de Python**.
+Para captura desde lector serial (puerto COM) continúa siendo necesario
+`pyserial`; el constructor de instaladores, las licencias y el lector
+completo conservan sus dependencias habituales.
+
+Para usar la corrección, descargar el código de la rama del PR de reparación
+(o actualizar esa rama con Git) y repetir:
+
+```powershell
+py -m tools.idc_diagnostic --bluetooth-check
+```
+
+La salida confirma únicamente presencia preliminar de Bluetooth;
+no demuestra todavía la compatibilidad BLE con IDC.
