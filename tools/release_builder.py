@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import _install_release_builder_guard as _guard_inno_script
+
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "template"
 CLIENTS = ROOT / "clientes"
@@ -530,6 +532,4 @@ def make_update_zip(version: str, out_dir: str) -> str:
 # Aplicar la protección de Inno una vez cargado el submódulo, no al
 # importar el paquete 'tools'. Esto mantiene la garantía para ambos
 # estilos: 'from tools import release_builder' y 'from tools.release_builder import ...'.
-from . import _install_release_builder_guard as _guard_inno_script
-
 _guard_inno_script()
