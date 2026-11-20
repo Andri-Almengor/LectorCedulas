@@ -1,0 +1,203 @@
+"""Prueba BLE limitada a UUID de una sesión sintética y sin credenciales reales."""
+from __future__ import annotations
+
+import base64
+import json
+from uuid import UUID
+
+from tools.idc_diagnostic.ble_link_probe import probe_mdoc_ble_link
+
+UUID_TEST = UUID("6fa459a1-6bd5-486b-8b59-1c375ee613d1")
+
+
+def _sample() -> bytes:
+    # Los bytes CBOR se sustituyen por decodificación controlada en los tests.
+    return b"mdoc:" + base64.urlsafe_b64encode(b"synthetic-cbor-not-a-real-idc").rstrip(b"=")
+
+
+def _engagement(_raw: bytes):
+    return {
+        0: "1.0",
+        1: [1, b"synthetic-ephemeral-data"],
+        2: [[2, 1, {0: True, 1: False, 10: UUID_TEST.bytes}]],
+    }
+
+
+async def _success(uuid: UUID, timeout: float):
+    assert uuid == UUID_TEST
+    assert timeout >= 3
+    return True, True
+
+
+async def _not_found(_uuid: UUID, _timeout: float):
+    return False, False
+
+
+async def _link_fail(_uuid: UUID, _timeout: float):
+    return True, False
+
+
+def test_successful_link_never_means_verified_idc():
+    result = probe_mdoc_ble_link(_sample(), consent=True, decode_cbor=_engagement, connect=_success)
+    assert result["holder_peripheral_announced"] is True
+    assert result["ble_service_uuid_present"] is True
+    assert result["link_status"] == "link_opened_then_closed"
+    assert result["ble_link_established"] is True
+    assert result["mdoc_session_established"] is False
+    assert result["verified_identity"] is False
+    assert result["idc_verification_available"] is False
+    assert str(UUID_TEST) not in json.dumps(result)
+
+
+def test_missing_explicit_consent_prevents_all_activities():
+    def unexpected(_raw: bytes):
+        raise AssertionError("No parse allowed")
+    result = probe_mdoc_ble_link(_sample(), consent=False, decode_cbor=unexpected)
+    assert result["link_status"] == "consent_required"
+    assert result["ble_link_established"] is False
+
+
+def test_connection_not_found_is_not_claimed_success():
+    result = probe_mdoc_ble_link(_sample(), consent=True, decode_cbor=_engagement, connect=_not_found)
+    assert result["link_status"] == "service_not_found"
+    assert result["verified_identity"] is False
+
+
+def test_connection_failed_is_not_claimed_success():
+    result = probe_mdoc_ble_link(_sample(), consent=True, decode_cbor=_engagement, connect=_link_fail)
+    assert result["link_status"] == "connection_not_established"
+    assert result["ble_link_established"] is False
+
+
+def test_phone_central_mode_needs_reader_peripheral_implementation():
+    def central_only(_raw: bytes):
+        return {0: "1.0", 2: [[2, 1, {0: False, 1: True, 11: UUID_TEST.bytes}]]}
+    report = probe_mdoc_ble_link(_sample(), consent=True, decode_cbor=central_only, connect=_success)
+    assert report["link_status"] == "phone_central_mode_only"
+    assert report["holder_central_announced"] is True
+    assert report["ble_link_established"] is False
+
+
+def test_broken_and_non_mdoc_qr_rejected_without_ble():
+    for bad in (b"https://tse.go.cr", b"mdoc:@@@", b"mdoc:"):
+        report = probe_mdoc_ble_link(bad, consent=True, decode_cbor=_engagement, connect=_success)
+        assert report["link_status"] == "invalid_qr"
+        assert report["ble_link_established"] is False
+
+
+def test_mdoc_not_convertible_to_cbor_never_starts_ble():
+    def malformed(_raw: bytes):
+        raise ValueError("malformed")
+    report = probe_mdoc_ble_link(_sample(), consent=True, decode_cbor=malformed, connect=_success)
+    assert report["link_status"] == "invalid_cbor"
+    assert report["verified_identity"] is False
+
+
+def test_invalid_uuid_no_link():
+    def baduuid(_raw: bytes):
+        return {0: "1.0", 2: [[2, 1, {0: True, 1: False, 10: b"wrong"}]]}
+    report = probe_mdoc_ble_link(_sample(), consent=True, decode_cbor=baduuid, connect=_success)
+    assert report["link_status"] == "missing_peripheral_uuid"
+    assert report["ble_link_established"] is False
+
+
+def test_local_scan_error_does_not_leak_identifiers():
+    async def failed(uuid: UUID, _timeout: float):
+        raise RuntimeError(f"Device UUID {uuid}; MAC 11:22:33:44:55:66")
+    report = probe_mdoc_ble_link(_sample(), consent=True, decode_cbor=_engagement, connect=failed)
+    assert report["link_status"] == "bluetooth_connection_error"
+    assert str(UUID_TEST) not in json.dumps(report)
+    assert "11:22" not in json.dumps(report)
+
+
+def test_link_timeout_bounds():
+    report = probe_mdoc_ble_link(_sample(), consent=True, decode_cbor=_engagement, connect=_success, timeout_seconds=60)
+    assert report["link_status"] == "invalid_timeout"
+
+
+def test_scanner_filters_to_qr_uuid_and_disconnects(monkeypatch):
+    import asyncio
+    import sys
+    from types import SimpleNamespace
+
+    from tools.idc_diagnostic.ble_link_probe import _connect_to_qr_service
+
+    observed = {"services": None, "disconnected": False}
+
+    class FakeScanner:
+        def __init__(self, detection_callback, service_uuids, scanning_mode):
+            observed["services"] = service_uuids
+            assert scanning_mode == "active"
+            self.callback = detection_callback
+
+        async def __aenter__(self):
+            self.callback(
+                object(),
+                SimpleNamespace(service_uuids=[str(UUID_TEST)]),
+            )
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class FakeClient:
+        is_connected = True
+
+        def __init__(self, _device, timeout):
+            assert timeout == 10.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            observed["disconnected"] = True
+            return None
+
+    monkeypatch.setitem(
+        sys.modules,
+        "bleak",
+        SimpleNamespace(BleakScanner=FakeScanner, BleakClient=FakeClient),
+    )
+    assert asyncio.run(_connect_to_qr_service(UUID_TEST, 3.0)) == (True, True)
+    assert observed["services"] == [str(UUID_TEST)]
+    assert observed["disconnected"] is True
+
+
+def test_cli_passes_custom_ble_scan_window_without_printing_qr(monkeypatch, capsys):
+    from tools.idc_diagnostic.__main__ import main
+
+    seen = {}
+    monkeypatch.setattr(
+        "tools.idc_diagnostic.__main__.capture_serial",
+        lambda port, baudrate, timeout_seconds: b"mdoc:synthetic-only",
+    )
+
+    def fake_probe(raw, *, consent, timeout_seconds):
+        seen.update(consent=consent, timeout=timeout_seconds)
+        assert raw == b"mdoc:synthetic-only"
+        return {"verified_identity": False, "link_status": "service_not_found"}
+
+    monkeypatch.setattr("tools.idc_diagnostic.__main__.probe_mdoc_ble_link", fake_probe)
+    assert main([
+        "--ble-link-check", "--port", "COM8", "--consent",
+        "--ble-scan-seconds", "30",
+    ]) == 0
+    captured = capsys.readouterr().out
+    assert seen == {"consent": True, "timeout": 30.0}
+    assert "synthetic-only" not in captured
+    assert '"verified_identity": false' in captured
+
+
+def test_cli_rejects_invalid_ble_scan_window_before_reading(monkeypatch):
+    import pytest
+    from tools.idc_diagnostic.__main__ import main
+
+    def no_scan(**_kwargs):
+        raise AssertionError("serial capture must not start for invalid args")
+
+    monkeypatch.setattr("tools.idc_diagnostic.__main__.capture_serial", no_scan)
+    with pytest.raises(SystemExit):
+        main([
+            "--ble-link-check", "--port", "COM8", "--consent",
+            "--ble-scan-seconds", "100",
+        ])

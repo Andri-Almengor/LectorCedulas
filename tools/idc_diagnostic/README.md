@@ -152,3 +152,102 @@ Aunque todas las capacidades sean verdaderas, `idc_session_verified`,
 
 El diagnóstico anterior `--bluetooth-check` y las lecturas de cédulas
 físicas **siguen funcionando sin PyWinRT**.
+
+## Prueba presencial y consentida del enlace BLE (experimental)
+
+Esta prueba **no es un lector IDC**, no verifica identidad ni recupera atributos.
+Solo intenta localizar el **servicio específico anunciado por el QR** y abrir
+brevemente una conexión BLE, que se cierra automáticamente. No enumera nombres,
+MAC, servicios ajenos ni características GATT. No almacena el QR ni el UUID.
+
+Instalar **solo en una computadora de laboratorio**, no en producción:
+
+```powershell
+py -m pip install -r requirements-idc-ble-lab.txt
+```
+
+Cerrar la aplicación principal DMS, activar Bluetooth en Windows y tener la
+aplicación IDC oficial abierta con el QR dinámico de una persona que **haya
+autorizado expresamente la prueba**.
+
+```powershell
+py -m tools.idc_diagnostic --ble-link-check --port COM3 --consent
+```
+
+Sustituir `COM3` por el puerto real. La herramienta usa únicamente la
+modalidad COM para evitar que un escáner HID imprima el QR en la terminal.
+El QR se procesa en memoria y no se escribe en archivos o terminal.
+
+Interpretaciones principales:
+
+- `link_opened_then_closed`: conexión BLE breve exitosa, **no** sesión mdoc.
+- `service_not_found`: no se vio el UUID anunciado durante la ventana de
+  escaneo; puede deberse a que el teléfono no anunció aún el servicio,
+  restricciones de Windows o que el flujo utiliza otro modo BLE.
+- `phone_central_mode_only`: el QR requiere que el verificador actúe como
+  periférico; esta prueba no implementa ese modo.
+- `missing_peripheral_uuid`: falta el UUID esperado para este modo.
+- `bleak_not_installed` / `cbor2_not_installed`: falta paquete opcional.
+- `bluetooth_connection_error`: enlace fallido sin imprimir datos del móvil.
+
+En todos los casos `verified_identity=false`,
+`mdoc_session_established=false` e `idc_verification_available=false`.
+La integración con SDK autorizado por TSE/GET Group sigue siendo necesaria.
+
+**Alcance y privacidad:** la búsqueda BLE se limita al identificador de servicio
+obtenido del QR presentado por el titular; no se guardan identificadores ni
+resultados de otros dispositivos. Compartir solo el JSON técnico del resultado.
+
+## Cuando se recibe `service_not_found`
+
+`service_not_found` significa que en la ventana de escaneo no llegó un anuncio
+con el UUID temporal del QR. **No es prueba de fallo del radio ni de identidad
+inválida**. El QR puede anunciar un servicio que todavía no esté transmitiéndose.
+
+Realizar un intento controlado de laboratorio:
+
+1. Cerrar la aplicación principal que usa el puerto COM y dejar Bluetooth
+   encendido y autorizado en ambos dispositivos.
+2. Abrir en el teléfono la presentación de la IDC y generar un **QR vigente**,
+   con el teléfono desbloqueado y la aplicación en primer plano.
+3. Colocar el teléfono cerca del adaptador y ejecutar con el puerto real:
+
+```powershell
+py -m tools.idc_diagnostic --ble-link-check --port COMx --consent --ble-scan-seconds 30
+```
+
+No aumentar `--timeout` pensando que alarga el escaneo BLE: ese parámetro
+controla la **captura serial**, no la búsqueda Bluetooth. La ventana BLE se
+modifica exclusivamente mediante `--ble-scan-seconds` (3–30 segundos).
+
+Si vuelve a aparecer `service_not_found`, efectuar por separado una prueba
+con la **aplicación Verificador IDC oficial** en otro equipo compatible y con
+consentimiento. El éxito de la aplicación oficial puede ayudar a distinguir
+un problema de publicidad del teléfono de uno de interoperabilidad en Windows;
+**no autoriza extraer datos de la aplicación oficial**.
+
+**No** activar escaneos abiertos de todos los dispositivos, no publicar UUID,
+direcciones MAC ni el QR, y no emparejar manualmente el teléfono desde la
+configuración Bluetooth como sustituto de la negociación mdoc. Si el
+transporte sigue sin aparecer, la siguiente etapa requiere revisar el
+comportamiento real de la aplicación IDC y obtener el SDK autorizado.
+
+## Decisión tras dos resultados `service_not_found`
+
+El 20 de noviembre de 2026 se repitió la búsqueda dirigida de QR `mdoc:`
+con periférico BLE anunciado y servicio UUID presente, tanto con la ventana
+original como con ventana ampliada a 30 segundos: **no se encontró el servicio**.
+Windows declaró BLE LE + roles central/periférico compatibles. El fallo sigue
+sin causa demostrada.
+
+**No continuar elevando el timeout ni cambiar de hardware por ahora.**
+El TSE informa que el Verificador IDC oficial es gratuito para Windows,
+iOS y Android, y que el instalador Windows debe solicitarse a
+`Comercializacion@tse.go.cr` o al `2287-5885`:
+https://www.tse.go.cr/idc/
+
+La próxima prueba es comparar el funcionamiento del verificador oficial
+en un entorno autorizado. Registrar únicamente resultados cualitativos:
+**éxito/fallo, modo utilizado, offline/online, autorización solicitada**,
+sin fotografiar pantallas ni registrar QR, UUID o datos de la persona.
+Ver `docs/IDC_OFFLINE_BLE_READINESS.md`.
