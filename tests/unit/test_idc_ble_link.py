@@ -113,3 +113,51 @@ def test_local_scan_error_does_not_leak_identifiers():
 def test_link_timeout_bounds():
     report = probe_mdoc_ble_link(_sample(), consent=True, decode_cbor=_engagement, connect=_success, timeout_seconds=60)
     assert report["link_status"] == "invalid_timeout"
+
+
+def test_scanner_filters_to_qr_uuid_and_disconnects(monkeypatch):
+    import asyncio
+    import sys
+    from types import SimpleNamespace
+
+    from tools.idc_diagnostic.ble_link_probe import _connect_to_qr_service
+
+    observed = {"services": None, "disconnected": False}
+
+    class FakeScanner:
+        def __init__(self, detection_callback, service_uuids, scanning_mode):
+            observed["services"] = service_uuids
+            assert scanning_mode == "active"
+            self.callback = detection_callback
+
+        async def __aenter__(self):
+            self.callback(
+                object(),
+                SimpleNamespace(service_uuids=[str(UUID_TEST)]),
+            )
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class FakeClient:
+        is_connected = True
+
+        def __init__(self, _device, timeout):
+            assert timeout == 10.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            observed["disconnected"] = True
+            return None
+
+    monkeypatch.setitem(
+        sys.modules,
+        "bleak",
+        SimpleNamespace(BleakScanner=FakeScanner, BleakClient=FakeClient),
+    )
+    assert asyncio.run(_connect_to_qr_service(UUID_TEST, 3.0)) == (True, True)
+    assert observed["services"] == [str(UUID_TEST)]
+    assert observed["disconnected"] is True
