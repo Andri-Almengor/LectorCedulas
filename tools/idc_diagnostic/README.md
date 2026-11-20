@@ -120,3 +120,35 @@ py -m tools.idc_diagnostic --bluetooth-check
 
 La salida confirma únicamente presencia preliminar de Bluetooth;
 no demuestra todavía la compatibilidad BLE con IDC.
+
+## Comprobación real de capacidades BLE del adaptador Windows (opcional)
+
+El informe `--bluetooth-check` prueba únicamente que Windows enumera una
+clase Bluetooth. Para comprobar **capacidad Low Energy y roles central/periférico**
+se utiliza la API oficial `Windows.Devices.Bluetooth.BluetoothAdapter`
+mediante PyWinRT. La biblioteca es **opcional** y no forma parte del lector
+principal ni se instala en los clientes automáticamente.
+
+Desde una copia de esta rama, en Windows 10/11 con Python 3.11 o posterior:
+
+```powershell
+py -m pip install "winrt-Windows.Devices.Bluetooth==4!10.0.28000.2957"
+py -m tools.idc_diagnostic --ble-capabilities
+```
+
+El informe NO busca teléfonos, no se empareja, no abre GATT ni almacena
+nombre/dirección del adaptador. Los valores
+`low_energy_supported`, `central_role_supported` y
+`peripheral_role_supported` provienen del adaptador predeterminado.
+
+Si aparece `adapter_status: winrt_dependency_missing`, comprobar que
+PyWinRT esté instalado en **el mismo intérprete** que ejecuta `py`.
+Si aparece `api_error`, no concluir que el equipo carece de BLE:
+solo significa que la API no pudo consultarse.
+
+Aunque todas las capacidades sean verdaderas, `idc_session_verified`,
+`gatt_connection_tested` y `verified_identity` continuarán siendo
+`false`: faltan el enlace real y el verificador autorizado por TSE/GET Group.
+
+El diagnóstico anterior `--bluetooth-check` y las lecturas de cédulas
+físicas **siguen funcionando sin PyWinRT**.
