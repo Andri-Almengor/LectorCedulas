@@ -231,3 +231,23 @@ direcciones MAC ni el QR, y no emparejar manualmente el teléfono desde la
 configuración Bluetooth como sustituto de la negociación mdoc. Si el
 transporte sigue sin aparecer, la siguiente etapa requiere revisar el
 comportamiento real de la aplicación IDC y obtener el SDK autorizado.
+
+## Decisión tras dos resultados `service_not_found`
+
+El 20 de noviembre de 2026 se repitió la búsqueda dirigida de QR `mdoc:`
+con periférico BLE anunciado y servicio UUID presente, tanto con la ventana
+original como con ventana ampliada a 30 segundos: **no se encontró el servicio**.
+Windows declaró BLE LE + roles central/periférico compatibles. El fallo sigue
+sin causa demostrada.
+
+**No continuar elevando el timeout ni cambiar de hardware por ahora.**
+El TSE informa que el Verificador IDC oficial es gratuito para Windows,
+iOS y Android, y que el instalador Windows debe solicitarse a
+`Comercializacion@tse.go.cr` o al `2287-5885`:
+https://www.tse.go.cr/idc/
+
+La próxima prueba es comparar el funcionamiento del verificador oficial
+en un entorno autorizado. Registrar únicamente resultados cualitativos:
+**éxito/fallo, modo utilizado, offline/online, autorización solicitada**,
+sin fotografiar pantallas ni registrar QR, UUID o datos de la persona.
+Ver `docs/IDC_OFFLINE_BLE_READINESS.md`.
