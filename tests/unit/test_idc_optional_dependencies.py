@@ -62,3 +62,12 @@ def test_inno_guard_remains_active_for_builder_import():
     from tools import release_builder
 
     assert getattr(release_builder._write_inno, "_dms_inno_guard", False) is True
+
+
+def test_ble_diagnostic_runs_without_site_packages():
+    completed = _run_isolated("-m", "tools.idc_diagnostic", "--ble-capabilities")
+    assert completed.returncode == 0, completed.stderr
+    report = json.loads(completed.stdout)
+    assert report["purpose"] == "ble_capability_diagnostic_only"
+    assert report["idc_verification_available"] is False
+    assert report["verified_identity"] is False

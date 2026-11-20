@@ -104,3 +104,31 @@ Para la futura interfaz: aislar módulo IDC del resto de parsers.
 Si no se detecta radio o falla el motor de verificación, mostrar un estado
 de `IDC no disponible en este equipo` y conservar las demás lecturas.
 Nunca registrar una IDC como autenticada sin prueba criptográfica.
+
+## Paso adicional — API WinRT de capacidades BLE
+
+La salida `bluetooth_class_status: detected` fue confirmada en una
+computadora de pruebas de DMS el 20 de noviembre de 2026. **No acredita BLE**.
+
+Para consultar propiedades del adaptador predeterminado sin escanear equipos
+de terceros, desde la rama del diagnóstico WinRT ejecutar:
+
+```powershell
+py -m pip install "winrt-Windows.Devices.Bluetooth==4!10.0.28000.2957"
+py -m tools.idc_diagnostic --ble-capabilities
+```
+
+Interpretación:
+
+- `low_energy_supported=true`: el adaptador declara Bluetooth LE.
+- `central_role_supported=true`: el adaptador declara rol central BLE.
+- `peripheral_role_supported=true`: declara rol periférico BLE.
+- `adapter_status=winrt_dependency_missing`: falta módulo opcional.
+- `adapter_status=no_default_adapter`: la API no encontró adaptador.
+- `adapter_status=api_error`: fallo consultando Windows; NO equivale
+  a incompatibilidad física.
+
+El QR observado anuncia BLE/NFC, pero el rol exacto de la sesión debe
+deducirse de las opciones completas del engagement con un motor compatible.
+Si el adaptador soporta rol central, solo se supera la prueba de hardware:
+NO confirma que la IDC o el SDK establezcan sesión correctamente.
