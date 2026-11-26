@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import io
+from collections.abc import Mapping
 from datetime import datetime
 
 from .issuer_auth import verify_issuer_auth_signature
@@ -133,7 +134,7 @@ def precheck_synthetic_signed_items(
         protected = _decode(sign1[0])
         if not isinstance(protected, dict) or set(protected) != {1} or protected[1] != -7:
             raise DigestError("unsupported_protected_headers")
-        if not isinstance(sign1[1], dict) or set(sign1[1]) != {33}:
+        if not isinstance(sign1[1], Mapping) or set(sign1[1]) != {33}:
             raise DigestError("unsupported_unprotected_headers")
         mso = _tag24(_decode(sign1[2]))
         if not isinstance(mso, dict) or mso.get("docType") != DOC:
