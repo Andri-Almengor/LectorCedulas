@@ -433,3 +433,45 @@ Para llegar a una verificación de identidad faltan el envío de
 `SessionEstablishment` con una solicitud de atributos explícitamente
 autorizada, recepción de `SessionData`, validación de `IssuerAuth`,
 todos los digests, `DeviceAuth` y confianza del emisor.
+
+## Etapa qa11 — transporte BLE cifrado con solicitud de documento inexistente
+
+La prueba de campo del 26 de noviembre confirmó el envío de State Start/End y
+ambas suscripciones BLE. Este siguiente paso **sí transmite un mensaje cifrado**
+`SessionEstablishment` fragmentado al canal `Client2Server`, pero su
+`DeviceRequest` está fijado EN EL CÓDIGO a un `docType` y un elemento
+`org.example` deliberadamente inexistentes. No se aceptan nombres de
+documentos ni campos reales por línea de comandos, y la prueba nunca registra
+visitantes.
+
+El teléfono normalmente rechazará o ignorará esa solicitud sintética. Que no
+responda NO es evidencia de incompatibilidad de la IDC. Si responde con
+`SessionData`, el programa puede probar la autenticación AES-GCM en memoria,
+pero **no decodifica atributos de identidad ni publica el contenido**. Una
+respuesta criptográficamente autenticada NO acredita el emisor ni identidad.
+
+Solo en equipo de laboratorio, con titular presente y permiso para generar
+un intercambio mDoc cifrado experimental:
+
+```cmd
+py -m tools.idc_diagnostic --ble-session-lab --port COM5 --consent --allow-synthetic-exchange --ble-scan-seconds 30
+```
+
+Recomendaciones: cerrar app principal, activar Bluetooth, mantener IDC abierta
+con QR NUEVO, y prever que el teléfono cierre o rechace la sesión. Evitar
+pruebas repetidas innecesarias. El modo usa tamaño de trama conservador
+(ATT MTU 23 / 20 bytes por escritura) y desacelera entre fragmentos.
+
+Posibles estados:
+- `encrypted_reply_authenticated_not_identity`: hubo SessionData AES-GCM
+  autenticado; **no hay verificación de firma, DeviceAuth o certificado IACA**
+- `no_response_to_synthetic_document_request`: el teléfono no respondió;
+  resulta compatible con rechazo del tipo de documento ficticio
+- `holder_ended_session_after_synthetic_request`: el teléfono terminó
+  el intercambio sin revelar datos
+- `encrypted_request_not_fully_sent`, `ble_exchange_error`: fallo de
+  envío/transporte; compartir únicamente JSON sanitizado
+
+**No utilizar** este modo para solicitar identidad real. Requerimos conocer
+docType/namespaces exactos del perfil IDC, permisos del titular y raíz IACA
+confiable antes de habilitar el flujo de verificación.

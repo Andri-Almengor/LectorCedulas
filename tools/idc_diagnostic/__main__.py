@@ -10,6 +10,7 @@ from .ble_capabilities import probe_ble_capabilities
 from .ble_link_probe import probe_mdoc_ble_link
 from .ble_gatt_probe import probe_mdoc_ble_gatt
 from .ble_state_probe import probe_mdoc_ble_state
+from .ble_session_lab import probe_synthetic_mdoc_transport
 from .ble_observer import observe_mdoc_ble_advertising
 from .ble_runtime import probe_ble_runtime
 from .bluetooth_probe import probe_bluetooth
@@ -46,6 +47,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ble-link-check", action="store_true", help="Prueba enlace BLE al QR (requiere --port y --consent)")
     parser.add_argument("--ble-gatt-check", action="store_true", help="Descubre características GATT de mDoc sin leer valores ni escribir")
     parser.add_argument("--ble-state-check", action="store_true", help="Prueba notificaciones y señalización State Start/End, SIN solicitar documentos")
+    parser.add_argument("--ble-session-lab", action="store_true", help="Envía un DeviceRequest cifrado con docType INEXISTENTE (laboratorio)")
+    parser.add_argument("--allow-synthetic-exchange", action="store_true", help="Autoriza explícitamente una solicitud cifrada de documento sintético inexistente")
+
     parser.add_argument("--allow-gatt-write", action="store_true", help="Autoriza escribir únicamente Start/End al estado GATT de la IDC")
 
     parser.add_argument("--mdoc-preflight", action="store_true", help="ECDH local con QR mdoc; NO verifica identidad")
@@ -67,6 +71,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.ble_observe_check and not 3 <= args.ble_scan_seconds <= 30:
         parser.error("--ble-scan-seconds debe estar entre 3 y 30")
 
+
+    if args.ble_session_lab and (
+        not args.port or not args.consent or not args.allow_synthetic_exchange
+        or args.ble_state_check or args.ble_link_check or args.ble_observe_check
+        or args.ble_gatt_check or args.mdoc_preflight
+    ):
+        parser.error("--ble-session-lab requiere --port COMx --consent --allow-synthetic-exchange sin otras pruebas")
+    if args.allow_synthetic_exchange and not args.ble_session_lab:
+        parser.error("--allow-synthetic-exchange solo corresponde a --ble-session-lab")
+    if args.ble_session_lab and not 3 <= args.ble_scan_seconds <= 30:
+        parser.error("--ble-scan-seconds debe estar entre 3 y 30")
     if args.ble_state_check and (
         not args.port or not args.consent or not args.allow_gatt_write
         or args.ble_link_check or args.ble_observe_check
@@ -118,6 +133,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.port:
             if args.ble_observe_check:
                 print("Escanee el QR autorizado. Se observarán temporalmente anuncios BLE próximos sin guardar identificadores.")
+            if args.ble_session_lab:
+                print("Escanee un QR autorizado: se enviará una solicitud CIFRADA de documento ficticio org.example; ningún atributo real.")
             if args.ble_state_check:
                 print("Escanee la IDC autorizada. Se enviarán solo las señales BLE State Start/End, sin solicitar documentos.")
             if args.ble_gatt_check:
@@ -125,6 +142,16 @@ def main(argv: list[str] | None = None) -> int:
             if args.ble_link_check:
                 print("Presente el QR de la IDC autorizada al lector COM. No se guardará.")
             raw = capture_serial(args.port, baudrate=args.baudrate, timeout_seconds=args.timeout)
+            if args.ble_session_lab:
+                report = probe_synthetic_mdoc_transport(
+                    raw, consent=True, allow_synthetic_exchange=True,
+                    timeout_seconds=args.ble_scan_seconds,
+                )
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+                if args.output:
+                    _write_report(args.output, report)
+                return 0
+
             if args.ble_state_check:
                 report = probe_mdoc_ble_state(
                     raw, consent=True, allow_gatt_write=True,
