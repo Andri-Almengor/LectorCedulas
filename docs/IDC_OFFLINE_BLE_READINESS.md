@@ -204,3 +204,19 @@ El aplicativo oficial es una referencia de **verificación**, no una API
 documentada: nunca leer pantallas ni extraer atributos automáticamente.
 Para completar el formulario DMS se necesita una interfaz autorizada,
 documentación de confianza y consentimiento del titular.
+
+## Diagnóstico siguiente: UUID del QR versus publicidad Bluetooth observable
+
+Tras dos búsquedas dirigidas `service_not_found` y un `mdoc-preflight`
+criptográfico local exitoso, ejecutar únicamente en laboratorio y con permiso
+explícito para escanear anuncios Bluetooth próximos:
+
+```powershell
+py -m tools.idc_diagnostic --ble-observe-check --port COM5 --consent --nearby-scan-ok --ble-scan-seconds 20
+```
+
+La utilidad no lee nombres, direcciones MAC, UUID ni datos de terceros,
+no se conecta a ningún dispositivo y no conserva los paquetes recibidos.
+La prueba **no indica identidad verificada ni confirma que se haya observado
+el teléfono si aparecen anuncios que no coincidan con el UUID del QR**.
+Consultar el README de esta herramienta para los códigos categóricos.

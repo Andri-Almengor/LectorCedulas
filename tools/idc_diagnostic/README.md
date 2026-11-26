@@ -295,3 +295,73 @@ reproducidos. Puede ensamblar una estructura `SessionEstablishment` con
 No transmite aún la estructura al teléfono y no verifica un `DeviceResponse`.
 Un mensaje descifrado NO equivale a una identidad autenticada: faltan
 `IssuerAuth`, MSO, certificados y la vinculación `DeviceAuth`.
+
+## Diagnóstico opcional de publicidad BLE — tras dos `service_not_found`
+
+Un resultado `service_not_found` indica que el filtro por UUID del QR no
+recibió el servicio anunciado, pero no permite distinguir si Windows recibe
+anuncios BLE de otros equipos.
+
+Esta opción **realiza un escaneo temporal más amplio** (sin filtro de UUID)
+para observar publicidad BLE cercana, pero procesa los anuncios en memoria
+y nunca registra dispositivos, nombres, direcciones, UUID ajenos ni paquetes.
+**Requiere autorización adicional** (`--nearby-scan-ok`) además del
+consentimiento de la persona que presenta la IDC.
+
+Con el lector de DMS cerrado, Bluetooth habilitado en Windows, el teléfono
+desbloqueado y la IDC mostrando un QR nuevo:
+
+```powershell
+py -m tools.idc_diagnostic --ble-observe-check --port COM5 --consent --nearby-scan-ok --ble-scan-seconds 20
+```
+
+Requiere `bleak`, `cbor2` y `pyserial` (ya usados en las pruebas previas).
+No ejecuta emparejamiento, conexiones, lecturas GATT ni acceso a atributos.
+
+Interpretación sin suposiciones:
+- `target_service_advertised`: se observó el UUID del QR en anuncios BLE
+  sin filtro; el filtro de la etapa anterior o sus tiempos pueden explicar la falla.
+- `target_uuid_in_service_data_only`: el UUID aparece solo en service data;
+  se debe revisar el método de publicidad del teléfono.
+- `other_advertisements_seen_not_target`: hay anuncios BLE cercanos,
+  pero no se vio el UUID de este QR; **no confirma que el teléfono haya sido observado**.
+- `no_ble_advertisements_received`: la API no entregó anuncios BLE,
+  sin que pueda concluirse por sí solo una falla física.
+- `ble_scan_error`: el sistema no completó la observación.
+
+Compartir únicamente el JSON. No compartir la imagen ni el QR `mdoc:`.
+Conservamos las lecturas físicas y ningún documento IDC puede aceptarse.
+
+## Error `bleak_not_installed` con Bleak ya instalado (bloqueo de WinRT)
+
+En Windows 11/Python 3.13, un caso real mostró Bleak 3.1.0, CBOR2 y todas
+sus dependencias WinRT instaladas. Sin embargo, la carga de
+`winrt.runtime._winrt` falló con:
+
+`ImportError: DLL load failed ... Una directiva de Control de aplicaciones bloqueó este archivo.`
+
+Esto **no significa que falte instalar Bleak**: Windows bloqueó una extensión
+nativa `.pyd` bajo una política de aplicación. El informe anterior era
+ambiguo; ahora diferencia `windows_application_control_blocked` de
+`ble_dependency_missing` y `ble_native_extension_load_error`.
+
+Antes de presentar un QR, ejecutar:
+
+```powershell
+py -m tools.idc_diagnostic --ble-runtime-check
+```
+
+Esta instrucción **no escanea dispositivos ni abre un puerto COM**.
+Si indica `windows_application_control_blocked`, consultar registros
+`Microsoft-Windows-CodeIntegrity/Operational` (3077/3089) o
+`Microsoft-Windows-AppLocker/EXE and DLL` (8004), y pedir al administrador
+que revise la política y autorice formalmente componentes legítimos si
+corresponde. Ver documentación de Microsoft:
+
+- https://learn.microsoft.com/windows/security/application-security/application-control/app-control-for-business/operations/appcontrol-debugging-and-troubleshooting
+- https://learn.microsoft.com/windows/security/application-security/application-control/app-control-for-business/applocker/using-event-viewer-with-applocker
+
+No desactivar Smart App Control, WDAC, AppLocker ni mecanismos de integridad
+como alternativa rápida. Una actualización de pip no modifica estas políticas.
+El diagnóstico de formato/criptografía local puede continuar aunque la
+prueba BLE esté bloqueada.
