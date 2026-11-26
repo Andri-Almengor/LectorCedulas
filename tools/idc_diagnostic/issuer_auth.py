@@ -174,7 +174,7 @@ def verify_issuer_auth_signature(
             if sign1.tag != 18:
                 raise IssuerAuthError("invalid_cose_sign1")
             sign1 = sign1.value
-        if not isinstance(sign1, list) or len(sign1) != 4:
+        if not isinstance(sign1, (list, tuple)) or len(sign1) != 4:
             raise IssuerAuthError("invalid_cose_sign1")
         protected_raw, unprotected, payload, signature = sign1
         if not isinstance(protected_raw, bytes) or not isinstance(unprotected, dict):
