@@ -26,3 +26,21 @@ Usar QR nuevo, titular presente, consentimiento explícito; cancelar si solicita
 datos distintos. Si el MAC no tiene forma estándar no intentar forzarlo.
 Comparar con Verificador IDC oficial en otro teléfono. No compartir datos
 personales. Falta obtener anclas auténticas y resolver divulgación legítima.
+
+
+## Ajuste QA21.1 — diagnóstico de payload no nulo
+
+Resultado de campo QA21: alg 5 protegido y tag de 32 bytes, pero payload
+no nulo; el error del país emisor es data_not_returned. RFC 9052 distingue
+bstr de nil; ISO DeviceMac requiere nil.
+https://www.rfc-editor.org/rfc/rfc9052.html#section-6.2
+
+Se clasifica payload bstr vacío, bstr coincidente exactamente con los bytes
+de autenticación reconstruidos localmente, o cualquier otra forma.
+Solo para bstr vacío o exacto se compara el tag contra el esperado usando
+el transcript propio. Nunca se autentica el bstr vacío ni datos arbitrarios.
+Incluso si coincide, se mantiene falso el indicador de MAC ISO conforme.
+No se modifica la solicitud ni se elude una negativa de divulgación.
+Cinco casos adicionales: total esperado 65 para la misma orden pytest.
+Realizar control con el verificador oficial; no continuar solicitando
+atributos personales sin aclarar el flujo de autorización.

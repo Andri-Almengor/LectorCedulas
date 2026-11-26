@@ -21,6 +21,11 @@ def empty_mac_precheck():
         "mdl_mac_alg5_protected": False,
         "mdl_mac_alg5_unprotected": False,
         "mdl_mac_detached_payload": False,
+        "mdl_mac_payload_is_bytes": False,
+        "mdl_mac_payload_empty_bytes": False,
+        "mdl_mac_payload_matches_expected": False,
+        "mdl_mac_nonstandard_payload_probe_checked": False,
+        "mdl_mac_nonstandard_expected_tag_matches": False,
         "mdl_mac_tag_is_bytes": False,
         "mdl_mac_tag_32_bytes": False,
         "mdl_mac_tag_empty": False,
@@ -65,6 +70,8 @@ def inspect_mac_consistency(response, material):
         report["mdl_mac_cose_parts_valid"] = True
         protected, unprotected, payload, tag = parts
         report["mdl_mac_detached_payload"] = payload is None
+        report["mdl_mac_payload_is_bytes"] = isinstance(payload, bytes)
+        report["mdl_mac_payload_empty_bytes"] = isinstance(payload, bytes) and not payload
         report["mdl_mac_tag_is_bytes"] = isinstance(tag, bytes)
         report["mdl_mac_tag_32_bytes"] = isinstance(tag, bytes) and len(tag) == 32
         report["mdl_mac_tag_empty"] = isinstance(tag, bytes) and not tag
@@ -80,7 +87,7 @@ def inspect_mac_consistency(response, material):
         if not (
             report["mdl_mac_alg5_protected"] and set(headers) == {1}
             and isinstance(unprotected, Mapping) and not unprotected
-            and payload is None and report["mdl_mac_tag_32_bytes"]
+            and (payload is None or isinstance(payload, bytes)) and report["mdl_mac_tag_32_bytes"]
             and set(auth) == {"deviceMac"}
         ):
             return report
@@ -125,14 +132,25 @@ def inspect_mac_consistency(response, material):
             + cbor2.dumps(DOC) + cbor2.dumps(spaces)
         )
         detached = cbor2.dumps(cbor2.CBORTag(24, authentication))
+        # A non-null payload is not ISO DeviceMac-conformant. Diagnose only
+        # an empty bstr placeholder or exact match of the locally built bytes.
+        # Never authenticate arbitrary attached content or MAC over empty data.
+        if payload is not None:
+            report["mdl_mac_payload_matches_expected"] = hmac.compare_digest(payload, detached)
+            if payload and not report["mdl_mac_payload_matches_expected"]:
+                return report
         shared = material.reader_key.exchange(ec.ECDH(), pub)
         emac = HKDF(
             algorithm=hashes.SHA256(), length=32,
             salt=hashlib.sha256(transcript_bytes).digest(), info=b"EMacKey",
         ).derive(shared)
         expected = hmac.digest(emac, cbor2.dumps(["MAC0", protected, b"", detached]), "sha256")
-        report["mdl_mac_consistency_checked"] = True
-        report["mdl_mac_matches_untrusted_mso_key"] = hmac.compare_digest(expected, tag)
+        if payload is None:
+            report["mdl_mac_consistency_checked"] = True
+            report["mdl_mac_matches_untrusted_mso_key"] = hmac.compare_digest(expected, tag)
+        else:
+            report["mdl_mac_nonstandard_payload_probe_checked"] = True
+            report["mdl_mac_nonstandard_expected_tag_matches"] = hmac.compare_digest(expected, tag)
     except Exception:
         return report
     return report

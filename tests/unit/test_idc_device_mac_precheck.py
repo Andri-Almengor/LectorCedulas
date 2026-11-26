@@ -97,3 +97,30 @@ def test_country_error_classification(code):
     assert result["mdl_requested_country_error_present"] is True
     assert result["mdl_requested_country_error_data_not_returned"] is (type(code) is int and code == 0)
     assert result["mdl_requested_country_error_nonzero"] is (type(code) is int and code != 0)
+
+
+@pytest.mark.parametrize("mode", ["empty", "exact", "different", "wrong_type", "empty_wrong_tag"])
+def test_nonstandard_payload_diagnosis_never_accepts_iso_mac(mode):
+    response, session = _fixture()
+    device = response["documents"][0]["deviceSigned"]
+    mac = device["deviceAuth"]["deviceMac"]
+    transcript = cbor2.loads(cbor2.loads(session.session_transcript).value)
+    exact = cbor2.dumps(cbor2.CBORTag(24, cbor2.dumps([
+        "DeviceAuthentication", transcript, DOC, device["nameSpaces"],
+    ])))
+    mac[2] = {
+        "empty": b"", "exact": exact, "different": b"different",
+        "wrong_type": False, "empty_wrong_tag": b"",
+    }[mode]
+    if mode == "empty_wrong_tag":
+        mac[3] = bytes([mac[3][0] ^ 1]) + mac[3][1:]
+    result = inspect_mac_consistency(response, session)
+    assert result["mdl_mac_detached_payload"] is False
+    assert result["mdl_mac_consistency_checked"] is False
+    assert result["mdl_mac_matches_untrusted_mso_key"] is False
+    assert result["mdl_mac_payload_is_bytes"] is (mode != "wrong_type")
+    assert result["mdl_mac_payload_empty_bytes"] is (mode in ("empty", "empty_wrong_tag"))
+    assert result["mdl_mac_payload_matches_expected"] is (mode == "exact")
+    assert result["mdl_mac_nonstandard_payload_probe_checked"] is (mode in ("empty", "exact", "empty_wrong_tag"))
+    assert result["mdl_mac_nonstandard_expected_tag_matches"] is (mode in ("empty", "exact"))
+    assert "different" not in json.dumps(result)
