@@ -246,3 +246,38 @@ def test_session_counter_overflow_is_rejected():
     cipher = SessionCipherState(material, reader_counter=0xFFFFFFFF)
     with pytest.raises(MdocProtocolError, match="reader_counter_exhausted"):
         cipher.encrypt_reader_message(b"request")
+
+
+def test_holder_can_independently_derive_exact_same_session_keys():
+    import hashlib
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    holder = ec.generate_private_key(ec.SECP256R1())
+    pub = holder.public_key().public_numbers()
+    holder_key = {
+        1: 2, -1: 1,
+        -2: pub.x.to_bytes(32, "big"),
+        -3: pub.y.to_bytes(32, "big"),
+    }
+    engagement = {
+        0: "1.0",
+        1: [1, cbor2.CBORTag(24, cbor2.dumps(holder_key))],
+        2: [[2, 1, {0: True, 1: False, 10: bytes.fromhex("6fa459a16bd5486b8b591c375ee613d1")}]],
+        3: [],
+    }
+    qr = b"mdoc:" + base64.urlsafe_b64encode(cbor2.dumps(engagement)).rstrip(b"=")
+    reader = prepare_reader_session(qr)
+    peer = cbor2.loads(reader.reader_cose_key)
+    peer_public = ec.EllipticCurvePublicNumbers(
+        int.from_bytes(peer[-2], "big"),
+        int.from_bytes(peer[-3], "big"),
+        ec.SECP256R1(),
+    ).public_key()
+    shared = holder.exchange(ec.ECDH(), peer_public)
+    salt = hashlib.sha256(reader.session_transcript).digest()
+    for label, actual in ((b"SKReader", reader.sk_reader), (b"SKDevice", reader.sk_device)):
+        expected = HKDF(
+            algorithm=hashes.SHA256(), length=32, salt=salt, info=label
+        ).derive(shared)
+        assert expected == actual
