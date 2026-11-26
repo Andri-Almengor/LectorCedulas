@@ -35,6 +35,7 @@ def _report():
         "response_status_code": None,
         "response_document_count_category": "unavailable",
         "response_document_errors_present": False,
+        "response_document_error_category": "unavailable",
         "issuer_signature_verified": False,
         "device_auth_verified": False,
         "iaca_trust_anchor_validated": False,
@@ -78,6 +79,9 @@ def probe_candidate(raw_qr: bytes, *, consent: bool, allow_candidate: bool, scan
         if type(code) is int and 0 <= code <= 255:
             report["response_status_code"] = code
         report["response_document_errors_present"] = result.get("response_document_errors_present") is True
+        category = result.get("response_document_error_category")
+        if category in ("absent", "data_not_returned", "nonzero_document_error", "malformed", "unavailable"):
+            report["response_document_error_category"] = category
         if code == 0 and count == "one" and result.get("response_structure_acceptable") is True:
             report["status"] = "candidate_document_observed_not_verified"
         elif count in ("absent", "none") and report["response_document_errors_present"]:

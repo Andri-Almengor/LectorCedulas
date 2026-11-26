@@ -45,11 +45,15 @@ def test_result_is_categorical(monkeypatch, count, errors, authenticated, expect
         "response_status_code": 0,
         "response_document_count_category": count,
         "response_document_errors_present": errors,
+        "response_document_error_category": "data_not_returned" if errors else "absent",
         "response_structure_acceptable": True,
         "unexpected": "PRIVATE_TEST_VALUE",
     }))
     result = probe.probe_candidate(b"test", consent=True, allow_candidate=True)
     assert result["status"] == expected, result
+    assert result["response_document_error_category"] == (
+        ("data_not_returned" if errors else "absent") if authenticated else "unavailable"
+    )
     assert result["verified_identity"] is False
     assert result["candidate_is_confirmed_idc_profile"] is False
     assert "PRIVATE_TEST_VALUE" not in json.dumps(result)
