@@ -59,7 +59,6 @@ def _parse_time(value: Any) -> datetime:
 
 def _require_direct_chain(der_leaf: bytes, der_iaca: bytes, when: datetime) -> Any:
     from cryptography import x509
-    from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.x509.oid import ExtensionOID, NameOID
 
