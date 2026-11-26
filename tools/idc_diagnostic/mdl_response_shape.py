@@ -35,6 +35,9 @@ def empty_mdl_shape():
         "mdl_device_requested_namespace_present": False,
         "mdl_device_other_namespace_present": False,
         "mdl_document_item_errors_present": False,
+        "mdl_requested_country_error_present": False,
+        "mdl_requested_country_error_data_not_returned": False,
+        "mdl_requested_country_error_nonzero": False,
         "mdl_mso_decodable": False,
         "mdl_mso_doc_type_matches": False,
         "mdl_mso_requested_digest_namespace_present": False,
@@ -135,6 +138,12 @@ def inspect_mdl_shape(response):
     report["mdl_returned_doc_type_matches"] = True
     item_errors = doc.get("errors")
     report["mdl_document_item_errors_present"] = isinstance(item_errors, Mapping) and bool(item_errors)
+    ns_errors = item_errors.get(NS) if isinstance(item_errors, Mapping) else None
+    if isinstance(ns_errors, Mapping) and ELEMENT in ns_errors:
+        report["mdl_requested_country_error_present"] = True
+        code = ns_errors[ELEMENT]
+        report["mdl_requested_country_error_data_not_returned"] = type(code) is int and code == 0
+        report["mdl_requested_country_error_nonzero"] = type(code) is int and code != 0
     device = doc.get("deviceSigned")
     if isinstance(device, Mapping):
         report["mdl_device_signed_present"] = True
