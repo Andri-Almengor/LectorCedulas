@@ -511,3 +511,23 @@ py -m tools.idc_diagnostic --ble-session-lab --port COM5 --consent --allow-synth
 El titular debe autorizar la nueva solicitud experimental y generar un
 QR nuevo. Compartir exclusivamente el JSON categórico. No conservar el
 contenido de la respuesta o el QR.
+
+## Interpretación del laboratorio real — 26/11/2026
+
+Una prueba autorizada con el lector físico COM5 produjo una respuesta
+AES-GCM autenticada y un `DeviceResponse` CBOR válido con:
+
+- `response_status_code=0`: el mensaje general fue procesado
+- `response_document_count_category=absent`: NO se entregó documento
+- `response_document_errors_present=true`: el teléfono comunicó un
+  error relativo al documento ficticio solicitado
+- `verified_identity=false`: identidad NO verificada
+
+El programa ahora categoriza este caso como
+`synthetic_document_unavailable_not_verified`, sin cambiar el transporte,
+el formato de petición ni la seguridad. **No volver a ejecutar pruebas
+sintéticas salvo que cambie una parte del transporte**: ya cumplieron su fin.
+
+La próxima etapa requiere información oficial del perfil IDC, su esquema
+mínimo de atributos, mecanismo de confianza y autorización para usarlo.
+Ver `docs/IDC_VERIFICACION_OFICIAL_PENDIENTES.md`.

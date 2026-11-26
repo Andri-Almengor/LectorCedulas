@@ -275,6 +275,7 @@ def probe_synthetic_mdoc_transport(
         "encrypted_session_establishment_prepared": False,
         **_flags(),
         **classify_device_response_structure(None),
+        "synthetic_document_unavailable_observed": False,
         "mdoc_session_established": False,
         "issuer_signature_verified": False,
         "device_auth_verified": False,
@@ -363,6 +364,16 @@ def probe_synthetic_mdoc_transport(
         elif type(value) is bool:
             report[field] = value
 
+    # Status 0 indica procesamiento general, NO documento presente ni válido.
+    # La solicitud es deliberadamente ficticia; errores por documento sin
+    # Documents constituyen una respuesta esperada y sin identidad.
+    report["synthetic_document_unavailable_observed"] = bool(
+        report["encrypted_reply_authenticated"]
+        and report["response_status_code"] == 0
+        and report["response_document_errors_present"]
+        and report["response_document_count_category"] in ("absent", "none")
+    )
+
     if not report["device_found"]:
         report["status"] = "service_not_found"
     elif not report["ble_connected"]:
@@ -373,6 +384,8 @@ def probe_synthetic_mdoc_transport(
         report["status"] = "gatt_state_start_failed"
     elif not report["session_establishment_sent"]:
         report["status"] = "encrypted_request_not_fully_sent"
+    elif report["synthetic_document_unavailable_observed"]:
+        report["status"] = "synthetic_document_unavailable_not_verified"
     elif report["encrypted_reply_authenticated"]:
         report["status"] = "encrypted_reply_authenticated_not_identity"
     elif report["session_data_received"]:
