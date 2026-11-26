@@ -475,3 +475,39 @@ Posibles estados:
 **No utilizar** este modo para solicitar identidad real. Requerimos conocer
 docType/namespaces exactos del perfil IDC, permisos del titular y raíz IACA
 confiable antes de habilitar el flujo de verificación.
+
+## Etapa qa12 — categorías de DeviceResponse cifrado autenticado
+
+La primera sesión real de laboratorio ya produjo:
+`encrypted_reply_authenticated=true`,
+`device_response_cbor_present=true`, y
+`status=encrypted_reply_authenticated_not_identity`.
+
+Para distinguir respuestas vacías, documentos inexistentes y errores sin
+exponer datos personales, ahora se incluyen indicadores adicionales,
+extraídos **solo después** de validar AES-GCM:
+
+- `response_status_code`: código numérico pequeño del `DeviceResponse`
+  (o `null` cuando no existe); `0` suele indicar procesamiento correcto,
+  **no verificación de identidad**.
+- `response_status_category`: `ok`, `nonzero`, `invalid_or_missing`,
+  `unavailable`.
+- `response_document_count_category`: `absent`, `none`, `one`,
+  `multiple`, `invalid`, `unavailable`. Nunca enumera documentos.
+- `response_document_errors_present`: si existe una estructura no vacía
+  de errores por documento; nunca publica docType ni códigos detallados.
+- `response_unexpected_document_present`: se obtuvo algún documento
+  pese a que la solicitud era de un tipo **ficticio**. No extraer contenido.
+- `session_data_field_present`: existencia de un campo `data` binario
+  en `SessionData`; independiente de estado de la sesión.
+
+Se mantiene el docType de prueba fijo, no configurable por CLI, y todas las
+banderas de verificación de identidad siguen en `false`.
+
+```cmd
+py -m tools.idc_diagnostic --ble-session-lab --port COM5 --consent --allow-synthetic-exchange --ble-scan-seconds 30
+```
+
+El titular debe autorizar la nueva solicitud experimental y generar un
+QR nuevo. Compartir exclusivamente el JSON categórico. No conservar el
+contenido de la respuesta o el QR.
