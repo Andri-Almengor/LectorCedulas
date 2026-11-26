@@ -56,8 +56,9 @@ def _check(root, auth, items):
 def test_matching_signature_and_presented_digests(sample):
     root, leaf, key, items = sample
     result = _check(root, _sign(leaf, key, items), items)
-    assert result["issuer_auth_precheck_passed"] is True
-    assert result["presented_item_digests_verified"] is True
+    assert result["status"] == "synthetic_signed_items_precheck_passed_not_identity", result
+    assert result["issuer_auth_precheck_passed"] is True, result
+    assert result["presented_item_digests_verified"] is True, result
 
 
 @pytest.mark.parametrize("case", ["tampered", "missing", "duplicate", "trailing", "unknown"])
@@ -71,7 +72,15 @@ def test_bad_items_fail_closed(sample, case):
         "trailing": (items[0] + b"\x00", items[1]),
         "unknown": (_item(5, "sample_name", "TEST_PERSON"), items[1]),
     }[case]
-    assert _check(root, auth, other)["presented_item_digests_verified"] is False
+    result = _check(root, auth, other)
+    assert result["issuer_auth_precheck_passed"] is True, result
+    assert result["presented_item_digests_verified"] is False
+    expected = {
+        "tampered": "digest_mismatch", "missing": "missing_or_extra_items",
+        "duplicate": "duplicate_item", "trailing": "trailing_cbor_data",
+        "unknown": "unknown_digest_id",
+    }
+    assert result["status"] == expected[case], result
 
 
 @pytest.mark.parametrize("kwargs", [
