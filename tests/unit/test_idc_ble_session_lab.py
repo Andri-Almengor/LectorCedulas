@@ -359,3 +359,23 @@ def test_encrypted_reply_without_specific_document_error_stays_generic():
     )
     assert report["synthetic_document_unavailable_observed"] is False
     assert report["status"] == "encrypted_reply_authenticated_not_identity"
+
+
+@pytest.mark.parametrize("errors, expected", [
+    ([{"private.document": 0}], "data_not_returned"),
+    ([{"private.document": -123}], "nonzero_document_error"),
+    ([{"private.document": True}], "malformed"),
+    ({"private.document": 0}, "malformed"),
+    ([], "absent"),
+])
+def test_authenticated_document_error_category(errors, expected):
+    material = prepare_reader_session(_valid_qr())
+    cipher = SessionCipherState(material)
+    plaintext = cbor2.dumps({"version": "1.0", "status": 0, "documentErrors": errors})
+    encrypted = AESGCM(material.sk_device).encrypt(
+        b"\x00" * 7 + b"\x01" + (1).to_bytes(4, "big"), plaintext, None,
+    )
+    report = _inspect_reply(cbor2.dumps({"data": encrypted}), cipher)
+    assert report["encrypted_reply_authenticated"] is True
+    assert report["response_document_error_category"] == expected
+    assert "private.document" not in json.dumps(report)

@@ -72,6 +72,28 @@ def _flags() -> dict[str, bool]:
     }
 
 
+def classify_document_error_codes(value: Any) -> str:
+    """Categorías fijas; nunca devolver identificadores ni códigos privados."""
+    if not isinstance(value, dict):
+        return "unavailable"
+    errors = value.get("documentErrors")
+    if errors is None or errors == []:
+        return "absent"
+    if not isinstance(errors, list) or not 1 <= len(errors) <= 16:
+        return "malformed"
+    codes = []
+    for entry in errors:
+        if not isinstance(entry, dict) or not 1 <= len(entry) <= 16:
+            return "malformed"
+        for doc_type, code in entry.items():
+            if not isinstance(doc_type, str) or not doc_type or type(code) is not int:
+                return "malformed"
+            codes.append(code)
+    if all(code == 0 for code in codes):
+        return "data_not_returned"
+    return "nonzero_document_error"
+
+
 def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState) -> dict[str, bool]:
     """Inspección extremadamente limitada de forma. No extrae ni retorna datos."""
     result = {
@@ -82,6 +104,7 @@ def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState) -> dict[st
         "decrypted_response_shape_recognized": False,
         "device_response_cbor_present": False,
         **classify_device_response_structure(None),
+        "response_document_error_category": "unavailable",
     }
     try:
         value = _cbor_full(envelope_bytes)
@@ -117,6 +140,7 @@ def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState) -> dict[st
         # Nunca devolver documentos, issuerSigned, deviceSigned ni atributos.
         categorization = classify_device_response_structure(parsed)
         result.update(categorization)
+        result["response_document_error_category"] = classify_document_error_codes(parsed)
         result["device_response_cbor_present"] = (
             categorization["response_structure_acceptable"] is True
         )
