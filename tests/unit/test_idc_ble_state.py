@@ -179,7 +179,7 @@ def test_state_signaling_subscribes_first_then_writes_only_state(monkeypatch):
     assert details["notification_unsubscribe_completed"]
     assert activity.index("subscribe:" + STATE_UUID) < activity.index("write:01")
     assert activity.index("subscribe:" + SERVER_TO_CLIENT_UUID) < activity.index("write:01")
-    assert "write:01" in activity and "write:02" in activity
+    assert "write:" + STATE_START.hex() in activity and "write:" + STATE_END.hex() in activity
     assert activity.index("write:02") < activity.index("disconnect")
     assert "sensitive-name" not in json.dumps(details)
     assert "AA:BB" not in json.dumps(details)
