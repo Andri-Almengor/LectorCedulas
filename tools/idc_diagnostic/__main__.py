@@ -11,6 +11,7 @@ from .ble_link_probe import probe_mdoc_ble_link
 from .bluetooth_probe import probe_bluetooth
 from .capture import available_ports, capture_keyboard, capture_serial
 from .inspect import MAX_SCAN_BYTES, inspect_qr
+from .mdoc_core import preflight_mdoc_crypto
 
 
 def _write_report(destination: str, report: dict[str, object]) -> None:
@@ -38,12 +39,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baudrate", type=int, default=9600)
     parser.add_argument("--timeout", type=float, default=25.0)
     parser.add_argument("--ble-link-check", action="store_true", help="Prueba enlace BLE al QR (requiere --port y --consent)")
+    parser.add_argument("--mdoc-preflight", action="store_true", help="ECDH local con QR mdoc; NO verifica identidad")
     parser.add_argument("--ble-scan-seconds", type=float, default=18.0, help="Duración de búsqueda BLE dirigida (3 a 30 segundos; predeterminado 18)")
     parser.add_argument("--consent", action="store_true", help="Declara consentimiento del titular para prueba BLE presencial")
     parser.add_argument("--output", help="Guardar solo metadatos JSON; archivo nuevo")
     args = parser.parse_args(argv)
     if args.ble_link_check and (not args.port or not args.consent):
         parser.error("--ble-link-check requiere --port COMx y --consent")
+    if args.mdoc_preflight and (not args.consent or (not args.port and not args.sample_file)):
+        parser.error("--mdoc-preflight requiere --consent y --port COMx o --sample-file sintético")
+    if args.mdoc_preflight and args.keyboard:
+        parser.error("--mdoc-preflight no admite entrada de teclado HID")
     if args.ble_link_check and not 3 <= args.ble_scan_seconds <= 30:
         parser.error("--ble-scan-seconds debe estar entre 3 y 30")
     try:
@@ -80,6 +86,12 @@ def main(argv: list[str] | None = None) -> int:
             if path.stat().st_size > MAX_SCAN_BYTES:
                 raise ValueError("Muestra local excede el límite de 32 KiB")
             raw = path.read_bytes()
+        if args.mdoc_preflight:
+            report = preflight_mdoc_crypto(raw, consent=True)
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            if args.output:
+                _write_report(args.output, report)
+            return 0
         report = inspect_qr(raw)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         if args.output:
