@@ -251,3 +251,47 @@ en un entorno autorizado. Registrar únicamente resultados cualitativos:
 **éxito/fallo, modo utilizado, offline/online, autorización solicitada**,
 sin fotografiar pantallas ni registrar QR, UUID o datos de la persona.
 Ver `docs/IDC_OFFLINE_BLE_READINESS.md`.
+
+## Base criptográfica ISO/IEC 18013-5 — etapa qa10
+
+Se agregó una preparación **local** de sesión mDoc para ensayar la estructura de
+seguridad del protocolo sin conectarse por Bluetooth ni exponer atributos:
+
+- Reconoce DeviceEngagement en forma de arreglo ISO 18013-5 y mapa candidato
+  (posible perfil ampliado; **no se presume conformidad del TSE**).
+- Exige cipher suite 1 y EDeviceKey tipo COSE EC2 sobre P-256, dentro de tag CBOR 24.
+- Genera clave efímera EReaderKey, arma SessionTranscript QR y deriva
+  **SKReader y SKDevice** mediante ECDH P-256 y HKDF SHA-256.
+- Construye DeviceRequest sintético con `docType` y `nameSpaces` suministrados
+  expresamente; no inventa los atributos ni el docType del TSE.
+- Nunca imprime llaves, UUID, transcript, QR, cédula, nombres ni certificados.
+
+En computadora de laboratorio, usando código de esta rama:
+
+```powershell
+py -m pip install -r requirements-idc-ble-lab.txt
+py -m pip install "cryptography==46.0.4"
+py -m tools.idc_diagnostic --mdoc-preflight --port COMx --consent
+```
+
+Usar el puerto COM real y el QR vigente del titular que haya autorizado la
+prueba. El reporte solo contiene estados booleanos y códigos categóricos.
+`local_crypto_preflight_passed_not_verified` demuestra **solo derivación
+local de claves**. No demuestra sesión BLE, emisor legítimo ni identidad.
+
+**La verificación completa sigue bloqueada** hasta integrar el transporte
+GATT, recibir `DeviceResponse`, validar `IssuerAuth`/firma COSE,
+certificados IACA de confianza, MSO/digests, DeviceAuth sobre la misma sesión
+y la vigencia. Hasta entonces, NO rellenar el formulario de visitantes.
+
+### Cifrado del mensaje de sesión (sintético, no conectado)
+
+El núcleo incorpora `SessionCipherState` con AES-256-GCM, nonce de 12 bytes
+(identificador de dirección de 8 bytes y contador big-endian de 4 bytes),
+contadores independientes por dirección y rechazo de mensajes alterados o
+reproducidos. Puede ensamblar una estructura `SessionEstablishment` con
+`eReaderKey` y `data` cifrados para pruebas sintéticas **en memoria**.
+
+No transmite aún la estructura al teléfono y no verifica un `DeviceResponse`.
+Un mensaje descifrado NO equivale a una identidad autenticada: faltan
+`IssuerAuth`, MSO, certificados y la vinculación `DeviceAuth`.
