@@ -365,3 +365,38 @@ No desactivar Smart App Control, WDAC, AppLocker ni mecanismos de integridad
 como alternativa rápida. Una actualización de pip no modifica estas políticas.
 El diagnóstico de formato/criptografía local puede continuar aunque la
 prueba BLE esté bloqueada.
+
+## Descubrimiento GATT de solo metadatos (tras enlace BLE confirmado)
+
+Con `--ble-link-check` se consiguió `link_opened_then_closed` en Windows,
+utilizando el servicio UUID efímero del QR. Se corrigió un indicador antiguo:
+**ese enlace por sí solo NO comprueba características GATT**. Por eso
+`gatt_link_tested=false` en la prueba de enlace a partir de esta etapa.
+
+Para inspeccionar las características del servicio mDoc SIN leer valores,
+suscribirse ni escribir datos, con la aplicación principal cerrada, Bluetooth
+activo y un QR actualizado mostrado por el titular que consiente:
+
+```cmd
+py -m tools.idc_diagnostic --ble-gatt-check --port COM5 --consent --ble-scan-seconds 30
+```
+
+La herramienta solo abre una conexión dirigida al servicio BLE del QR,
+inspecciona UUID y propiedades de las características `State`,
+`Client2Server` y `Server2Client`, y cierra el enlace. Nunca imprime UUID,
+nombres, direcciones ni valores. Resultado `gatt_profile_discovered_not_session_started`
+significa **solo que el perfil GATT básico está presente**, NO que se
+haya establecido una sesión mDoc ni verificado la IDC.
+
+Resultados posibles:
+- `gatt_profile_discovered_not_session_started`: perfil y propiedades
+  básicos presentes, siguiente paso es intercambio mDoc cifrado
+- `gatt_profile_incomplete_or_different`: características o permisos
+  distintos a los que esperamos; compartir los flags del JSON
+- `service_not_found`: QR obsoleto, publicidad BLE temporal ausente,
+  o servicio no detectado en la ventana de escaneo
+- `gatt_discovery_error`: error técnico al descubrir propiedades;
+  no se exponen excepciones ni datos del dispositivo
+
+El escaneo y la inspección de GATT no proporcionan información personal
+ni validan credenciales.
