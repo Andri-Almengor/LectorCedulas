@@ -60,3 +60,14 @@
   debe verificarse contra el perfil efectivamente utilizado por Costa Rica,
   sin inferir que ISO 18013-5 cubre todos sus detalles específicos.
 - Conservar ruta de lectura física y bloqueo del autollenado IDC.
+
+### Subetapa de sesión cifrada
+
+- Cifrado AES-256-GCM con IV por dirección, contadores 1..2^32-1,
+  autenticación AEAD, rechazo de replay y contadores inválidos.
+- Construcción de un `SessionEstablishment` sintético con
+  `eReaderKey` y `DeviceRequest` cifrada; solo en memoria.
+- Pruebas de cifrado/descifrado, mensajes alterados, retransmisión
+  y contador agotado.
+- **No se ha transmitido** aún por GATT; la recepción/validación del
+  `DeviceResponse` y certificados de confianza está pendiente.
