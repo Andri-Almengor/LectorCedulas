@@ -26,6 +26,7 @@ from .gatt_codec import (
     GattReassembler,
     fragment_message,
 )
+from .device_response_shape import classify_device_response_structure
 from .mdoc_core import (
     MdocProtocolError,
     SessionCipherState,
@@ -59,6 +60,7 @@ def _flags() -> dict[str, bool]:
         "response_fragment_seen": False,
         "session_data_received": False,
         "session_status_received": False,
+        "session_data_field_present": False,
         "encrypted_reply_authenticated": False,
         "decrypted_response_shape_recognized": False,
         "device_response_cbor_present": False,
@@ -75,9 +77,11 @@ def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState) -> dict[st
     result = {
         "session_data_received": False,
         "session_status_received": False,
+        "session_data_field_present": False,
         "encrypted_reply_authenticated": False,
         "decrypted_response_shape_recognized": False,
         "device_response_cbor_present": False,
+        **classify_device_response_structure(None),
     }
     try:
         value = _cbor_full(envelope_bytes)
@@ -93,6 +97,7 @@ def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState) -> dict[st
         type(value.get("status")) is int and 0 <= value["status"] < 256
     )
     encrypted = value.get("data")
+    result["session_data_field_present"] = isinstance(encrypted, bytes)
     if not isinstance(encrypted, bytes):
         return result
     try:
@@ -108,10 +113,12 @@ def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState) -> dict[st
         return result
     if isinstance(parsed, dict):
         result["decrypted_response_shape_recognized"] = True
-        # Nunca consultar/extraer los atributos, issuerSigned o deviceSigned.
+        # Solo analizar cabeceras estructurales y el conteo de documentos.
+        # Nunca devolver documentos, issuerSigned, deviceSigned ni atributos.
+        categorization = classify_device_response_structure(parsed)
+        result.update(categorization)
         result["device_response_cbor_present"] = (
-            isinstance(parsed.get("version"), str)
-            and isinstance(parsed.get("status"), int)
+            categorization["response_structure_acceptable"] is True
         )
     return result
 
@@ -267,6 +274,7 @@ def probe_synthetic_mdoc_transport(
         "reader_keys_derived_locally": False,
         "encrypted_session_establishment_prepared": False,
         **_flags(),
+        **classify_device_response_structure(None),
         "mdoc_session_established": False,
         "issuer_signature_verified": False,
         "device_auth_verified": False,
@@ -338,6 +346,22 @@ def probe_synthetic_mdoc_transport(
         return report
     for field in fields:
         report[field] = results[field]
+
+    # Únicamente copiar etiquetas tipadas ya saneadas y conocidas.
+    summary_template = classify_device_response_structure(None)
+    for field in summary_template:
+        value = results.get(field)
+        if field == "response_status_code":
+            if type(value) is int and 0 <= value <= 255:
+                report[field] = value
+        elif field == "response_status_category":
+            if value in ("unavailable", "ok", "nonzero", "invalid_or_missing"):
+                report[field] = value
+        elif field == "response_document_count_category":
+            if value in ("unavailable", "absent", "none", "one", "multiple", "invalid"):
+                report[field] = value
+        elif type(value) is bool:
+            report[field] = value
 
     if not report["device_found"]:
         report["status"] = "service_not_found"
