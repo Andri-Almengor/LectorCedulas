@@ -12,6 +12,7 @@ from typing import Any
 from uuid import UUID
 
 from .ble_link_probe import _get_transport_options, _load_cbor
+from .ble_runtime import classify_ble_import_error
 
 _DEFAULT_SECONDS = 20.0
 
@@ -103,8 +104,8 @@ def observe_mdoc_ble_advertising(
                 timeout=duration_seconds + 5.0,
             )
         )
-    except (ImportError, ModuleNotFoundError):
-        report["status"] = "bleak_not_installed"
+    except ImportError as exc:
+        report["status"] = classify_ble_import_error(exc)
         return report
     except TimeoutError:
         report["status"] = "scan_timeout"

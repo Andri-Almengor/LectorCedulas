@@ -331,3 +331,37 @@ Interpretación sin suposiciones:
 
 Compartir únicamente el JSON. No compartir la imagen ni el QR `mdoc:`.
 Conservamos las lecturas físicas y ningún documento IDC puede aceptarse.
+
+## Error `bleak_not_installed` con Bleak ya instalado (bloqueo de WinRT)
+
+En Windows 11/Python 3.13, un caso real mostró Bleak 3.1.0, CBOR2 y todas
+sus dependencias WinRT instaladas. Sin embargo, la carga de
+`winrt.runtime._winrt` falló con:
+
+`ImportError: DLL load failed ... Una directiva de Control de aplicaciones bloqueó este archivo.`
+
+Esto **no significa que falte instalar Bleak**: Windows bloqueó una extensión
+nativa `.pyd` bajo una política de aplicación. El informe anterior era
+ambiguo; ahora diferencia `windows_application_control_blocked` de
+`ble_dependency_missing` y `ble_native_extension_load_error`.
+
+Antes de presentar un QR, ejecutar:
+
+```powershell
+py -m tools.idc_diagnostic --ble-runtime-check
+```
+
+Esta instrucción **no escanea dispositivos ni abre un puerto COM**.
+Si indica `windows_application_control_blocked`, consultar registros
+`Microsoft-Windows-CodeIntegrity/Operational` (3077/3089) o
+`Microsoft-Windows-AppLocker/EXE and DLL` (8004), y pedir al administrador
+que revise la política y autorice formalmente componentes legítimos si
+corresponde. Ver documentación de Microsoft:
+
+- https://learn.microsoft.com/windows/security/application-security/application-control/app-control-for-business/operations/appcontrol-debugging-and-troubleshooting
+- https://learn.microsoft.com/windows/security/application-security/application-control/app-control-for-business/applocker/using-event-viewer-with-applocker
+
+No desactivar Smart App Control, WDAC, AppLocker ni mecanismos de integridad
+como alternativa rápida. Una actualización de pip no modifica estas políticas.
+El diagnóstico de formato/criptografía local puede continuar aunque la
+prueba BLE esté bloqueada.

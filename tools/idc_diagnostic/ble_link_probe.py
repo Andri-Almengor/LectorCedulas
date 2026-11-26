@@ -15,6 +15,7 @@ from typing import Any
 from uuid import RFC_4122, UUID
 
 from .inspect import MAX_SCAN_BYTES
+from .ble_runtime import classify_ble_import_error
 
 _B64 = re.compile(rb"[A-Za-z0-9_-]+={0,2}\Z")
 _SCAN_WINDOW_SECONDS = 18.0
@@ -164,8 +165,8 @@ def probe_mdoc_ble_link(
         found, connected = asyncio.run(
             asyncio.wait_for(bridge(service_uuid, timeout_seconds), timeout=timeout_seconds + 15.0)
         )
-    except (ImportError, ModuleNotFoundError):
-        report["link_status"] = "bleak_not_installed"
+    except ImportError as exc:
+        report["link_status"] = classify_ble_import_error(exc)
         return report
     except (TimeoutError, asyncio.TimeoutError):
         report["link_status"] = "connection_timeout"
