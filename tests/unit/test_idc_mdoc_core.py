@@ -182,3 +182,66 @@ def test_core_still_imports_without_crypto_extras():
     )
     assert p.returncode == 0, p.stderr
     assert p.stdout.strip() == "optional imports deferred"
+
+
+def test_session_establishment_encrypted_with_reader_direction_and_once():
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from tools.idc_diagnostic.mdoc_core import SessionCipherState, build_session_establishment
+
+    material = prepare_reader_session(_qr())
+    cipher = SessionCipherState(material)
+    request = build_device_request(
+        doc_type="org.example.photoid",
+        requested_namespaces={"org.example.person": ("family_name",)},
+    )
+    packet = cbor2.loads(build_session_establishment(material, cipher, request))
+    assert cipher.establishment_sent is True
+    assert cipher.reader_counter == 1
+    assert isinstance(packet["eReaderKey"], cbor2.CBORTag)
+    assert packet["eReaderKey"].tag == 24
+    decrypted = AESGCM(material.sk_reader).decrypt(
+        b"\x00" * 8 + (1).to_bytes(4, "big"), packet["data"], None
+    )
+    assert decrypted == request
+    with pytest.raises(MdocProtocolError, match="establishment_not_allowed"):
+        build_session_establishment(material, cipher, request)
+
+
+def test_session_device_direction_authentication_and_replay_rejection():
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from tools.idc_diagnostic.mdoc_core import SessionCipherState
+
+    material = prepare_reader_session(_qr())
+    cipher = SessionCipherState(material)
+    encrypted = AESGCM(material.sk_device).encrypt(
+        (1).to_bytes(8, "big") + (1).to_bytes(4, "big"), b"synthetic-response", None
+    )
+    assert cipher.decrypt_device_message(encrypted) == b"synthetic-response"
+    assert cipher.device_counter == 1
+    with pytest.raises(MdocProtocolError, match="session_authentication_failed"):
+        cipher.decrypt_device_message(encrypted)
+    assert cipher.device_counter == 1
+
+
+def test_corrupted_ciphertext_does_not_advance_counter():
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from tools.idc_diagnostic.mdoc_core import SessionCipherState
+
+    material = prepare_reader_session(_qr())
+    cipher = SessionCipherState(material)
+    encrypted = bytearray(AESGCM(material.sk_device).encrypt(
+        (1).to_bytes(8, "big") + (1).to_bytes(4, "big"), b"synthetic-response", None
+    ))
+    encrypted[-1] ^= 1
+    with pytest.raises(MdocProtocolError, match="session_authentication_failed"):
+        cipher.decrypt_device_message(bytes(encrypted))
+    assert cipher.device_counter == 0
+
+
+def test_session_counter_overflow_is_rejected():
+    from tools.idc_diagnostic.mdoc_core import SessionCipherState
+
+    material = prepare_reader_session(_qr())
+    cipher = SessionCipherState(material, reader_counter=0xFFFFFFFF)
+    with pytest.raises(MdocProtocolError, match="reader_counter_exhausted"):
+        cipher.encrypt_reader_message(b"request")
