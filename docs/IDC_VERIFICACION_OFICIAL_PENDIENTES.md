@@ -155,3 +155,48 @@ Fuente: https://tse.go.cr/comunicado1228.html
 - [ ] Comparar resultados con el Verificador IDC para Windows oficial, sin extraer secretos de terceros
 - [ ] Integrar solamente un resultado explícito de identidad verificada; no permitir que `status=0` o `encrypted_reply_authenticated=true` autoricen visitas
 - [ ] Ejecutar CI Windows y Linux, auditoría de dependencias y revisión de seguridad antes de fusionar a `main`
+
+## Procedimiento manual asistido desde LectorCedulas (sin integración de datos)
+
+El panel de control de la versión experimental incluye el botón
+**Guía IDC oficial**. Abre un cuadro informativo con instrucciones
+para utilizar un Verificador IDC del TSE **por separado**.
+
+1. El ciudadano abre `Identidad Digital CR` y presenta un QR nuevo.
+2. Personal autorizado utiliza el Verificador IDC del TSE en Windows,
+   Android o iOS y sigue sus instrucciones. Solo ese aplicativo
+   informa el resultado de su propia verificación.
+3. Se coteja presencialmente la identidad mostrada. Si no es posible
+   verificar, **no registrar la identidad como verificada**.
+4. Cuando el resultado oficial es satisfactorio, el recepcionista
+   digita manualmente en el **formulario del registro de visitas**
+   solo los datos mínimos exigidos para el trámite autorizado.
+5. No fotografiar, grabar pantalla, copiar QR ni retener el teléfono.
+
+### Alcance y advertencias
+
+- El botón **no abre ni controla** la aplicación verificador de Windows,
+  ni analiza su pantalla, ni recibe datos desde ella.
+- No existe una API oficial conectada a este flujo; por ello,
+  **ningún estado interno de IDC pasa a `verified_identity=true`**.
+- No se conserva ningún resultado de verificación, dato personal o
+  evidencia biométrica por esta guía. No se rellena automáticamente
+  el formulario de visitantes.
+- La CCSS publica una orientación institucional de no tomar ni conservar
+  fotografías o capturas de la IDC. Aplicamos esa precaución de privacidad
+  también como norma operativa de DMS; no afirmamos que toda la redacción
+  de la CCSS sea, por sí misma, una ley general aplicable a terceros.
+- El formulario existente de LectorCedulas incluye apellido, nombre,
+  cédula y un campo opcional de fecha de nacimiento. Solicitar y guardar
+  fecha de nacimiento solo si el responsable del tratamiento la necesita
+  legítimamente y corresponde al trámite.
+- El portal oficial del TSE confirma versiones Windows, Android e iOS
+  del Verificador IDC. La versión Windows se solicita al
+  Departamento de Comercialización de Servicios.
+
+Fuentes oficiales:
+- https://www.tse.go.cr/idc/
+- https://www.ccss.sa.cr/idc
+
+**Estado:** complemento operativo temporal. No sustituye validación mDoc
+criptográfica integrada, consentimiento ni política legal de tratamiento.

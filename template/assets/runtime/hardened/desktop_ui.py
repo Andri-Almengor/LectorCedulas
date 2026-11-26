@@ -3,11 +3,18 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
+import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Callable
 
+from .idc_official_flow import (
+    OFFICIAL_GUIDE_NOTICE,
+    OFFICIAL_GUIDE_PRIVACY,
+    OFFICIAL_GUIDE_STEPS,
+    OFFICIAL_TSE_IDC_URL,
+)
 from .reader_calibration import CalibrationProgress, CalibrationResult
 from .ui_theme import COLOR_MUTED, apply_dms_theme, apply_window_icon
 
@@ -278,6 +285,57 @@ def run_configuration_selector(
     root.mainloop()
 
 
+
+def run_official_idc_guide(parent: tk.Misc) -> None:
+    """Muestra un procedimiento externo sin guardar ni verificar identidades."""
+    dialog = tk.Toplevel(parent)
+    dialog.title("IDC - verificación con aplicativo oficial")
+    dialog.resizable(False, False)
+    dialog.transient(parent)
+    _center(dialog, 700, 505)
+
+    panel = ttk.Frame(dialog, style="DMS.TFrame", padding=22)
+    panel.pack(fill="both", expand=True)
+    ttk.Label(
+        panel,
+        text="Verificación IDC con el TSE",
+        style="DMS.Header.TLabel",
+    ).pack(anchor="w")
+    ttk.Label(
+        panel, text=OFFICIAL_GUIDE_NOTICE,
+        style="DMS.Sub.TLabel", wraplength=645, justify="left",
+    ).pack(anchor="w", pady=(6, 16))
+
+    steps = ttk.Frame(panel, style="DMS.Panel.TFrame", padding=16)
+    steps.pack(fill="x")
+    for instruction in OFFICIAL_GUIDE_STEPS:
+        ttk.Label(
+            steps, text=instruction,
+            style="DMS.Panel.TLabel", wraplength=625, justify="left",
+        ).pack(anchor="w", pady=(0, 10))
+
+    ttk.Label(
+        panel, text=OFFICIAL_GUIDE_PRIVACY,
+        style="DMS.Sub.TLabel", wraplength=645, justify="left",
+    ).pack(anchor="w", pady=(14, 12))
+
+    actions = ttk.Frame(panel, style="DMS.TFrame")
+    actions.pack(fill="x", side="bottom")
+    ttk.Button(
+        actions, text="Información oficial del TSE",
+        style="DMS.Ghost.TButton",
+        command=lambda: webbrowser.open(OFFICIAL_TSE_IDC_URL),
+    ).pack(side="left")
+    ttk.Button(
+        actions, text="Cerrar guía",
+        style="DMS.Primary.TButton", command=dialog.destroy,
+    ).pack(side="right")
+
+    # Modal dentro de la aplicación. No puede aprobar una IDC ni rellenar
+    # formularios; solo consulta instrucciones públicas.
+    dialog.grab_set()
+
+
 def run_control_panel(
     *,
     product_name: str,
@@ -406,6 +464,12 @@ def run_control_panel(
         style="DMS.Ghost.TButton",
         command=actions.clear_diagnostics,
     ).pack(side="left")
+    ttk.Button(
+        diagnostic_actions,
+        text="Guía IDC oficial",
+        style="DMS.Ghost.TButton",
+        command=lambda: run_official_idc_guide(root),
+    ).pack(side="left", padx=8)
 
     footer = ttk.Frame(outer, style="DMS.TFrame")
     footer.pack(fill="x", side="bottom", pady=(20, 0))
