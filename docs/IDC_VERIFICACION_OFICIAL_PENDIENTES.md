@@ -80,3 +80,78 @@ Solo se podrá activar integración de identidad tras implementar y
 ensayar con vectores oficiales validaciones exhaustivas de credenciales,
 mecanismos de confianza y autorización de atributos. `main` no se toca
 en estas ramas experimentales.
+
+## Evaluación de alternativas — 26/11/2026
+
+### Decisión para DMS / LectorCedulas
+
+**Continuar con la implementación Python/Bleak existente en el laboratorio.**
+Las pruebas reales con COM5 confirmaron DeviceEngagement QR, servicio BLE
+periférico, características GATT, State Start/End, intercambio
+SessionEstablishment cifrado, autenticación AES-GCM de una respuesta y
+`DeviceResponse` con error esperado ante un docType sintético. No comprar
+otro hardware para el laboratorio ni migrar automáticamente a C# o Electron.
+
+En el producto final, la verificación de documentos digitales se deberá
+aislar como una interfaz de verificador que solo emita un resultado positivo
+después de completar validación criptográfica y de confianza. Mantener
+la ruta de cédulas físicas intacta y una alternativa autorizada con el
+verificador oficial mientras el desarrollo propio no esté listo.
+
+### Hardware
+
+| Componente | Situación de laboratorio | Observaciones |
+| --- | --- | --- |
+| Escáner QR 2D | **Comprobado** en COM5 | Conservar la captura temporal del QR; nunca loguearlo |
+| Bluetooth LE | **Comprobado** con WinRT/Bleak | GATT y respuesta cifrada autenticada en teléfono real |
+| NFC USB | No requerido para el flujo QR + BLE | No comprar hasta justificar un segundo transporte |
+| Cámara web | No necesaria en el flujo COM5 actual | Algunos SDK requieren cámara aunque el código existente no |
+
+### Comparación de SDK (no confundir soporte ISO con interoperabilidad IDC)
+
+| Alternativa | Hechos contrastados | Limitaciones para esta integración |
+| --- | --- | --- |
+| Python + Bleak, cbor2 y cryptography | Transporte QR/BLE y sesión cifrada probados en nuestro laboratorio | Falta confianza certificada del TSE, validación completa de IssuerAuth/MSO/digests/DeviceAuth/revocación y esquema de IDC |
+| Scytáles `MdlIsoReaderDotNetSDK` | Paquete NuGet de lector ISO/IEC 18013-5 para Windows/.NET 8.0, BLE offline; requiere Visual Studio y el fabricante describe cámara + adaptador Bluetooth | Solicitar licencia y soporte; confirmar si admite QR por COM5, perfiles mDoc no-mDL, confianza IDC/TSE y API adecuada. No asumir compatibilidad Costa Rica ni soporte NFC offline |
+| `stelauconseil/mdoc-web-verifier` | Código abierto Apache-2.0 para Web Bluetooth y verificación COSE/IssuerAuth, digests, DeviceAuth e importación de IACA/VICAL | Su lista raíz precargada NO contiene al TSE; no usar certificados de otras jurisdicciones. Auditar implementación, dependencias, políticas locales y almacenamiento de claves antes de reutilizar código |
+| Verificador IDC oficial para Windows | El TSE confirma disponibilidad gratuita previa solicitud por Comercialización | Utilizar como referencia de interoperabilidad, confirmar posibilidad legal/técnica de integración; no presumir SDK/API |
+
+Fuentes revisadas:
+- TSE IDC oficial: https://www.tse.go.cr/idc/
+- TSE términos: https://www.tse.go.cr/pdf/IDC/terminosycondiciones.html
+- NuGet Scytáles: https://www.nuget.org/packages/MdlIsoReaderDotNetSDK/
+- Documentación fabricante: https://www.scytales.com/sdk-documentation
+- Verificador web abierto: https://github.com/stelauconseil/mdoc-web-verifier
+
+**Precisión sobre certificados:** no identificar automáticamente la PKI
+Nacional de Firma Digital con la autoridad IACA que firme una IDC. Un
+verificador debe confiar en los certificados y políticas concretos que
+el TSE confirme para el perfil IDC. No se ha confirmado un enlace público
+oficial en estas fuentes con la raíz IACA de la IDC, ni el docType/namespace
+concreto. No importar raíces arbitrarias ni inventar valores.
+
+**Precisión sobre modalidades:** la documentación del TSE contempla
+verificación sin conexión mediante QR/BLE/NFC y una modalidad de
+verificación contra servicios institucionales; no inferir que ambos
+ofrecen las mismas garantías, campos o acceso para SDK de terceros.
+
+### Fecha regulatoria
+
+En comunicado del **10/11/2026**, el TSE recordó que la IDC tendrá
+aceptación obligatoria en instituciones públicas y privadas a partir del
+**01/01/2027**. Planificar un procedimiento operativo compatible
+mediante verificador oficial mientras los componentes de validación propia
+continúen en laboratorio.
+
+Fuente: https://tse.go.cr/comunicado1228.html
+
+### Criterios de avance para PR de verificación real
+
+- [ ] Obtener especificación oficial docType, namespaces, atributos, tipos CBOR y lector autorizado; registrar procedencia institucional
+- [ ] Obtener raíces de confianza y procedimiento de rotación/revocación publicado por fuente oficial y confirmar IACA vs PKI de firma digital
+- [ ] Implementar validación completa de cadena y política del emisor, IssuerAuth, MSO, todos los digests revelados, DeviceAuth y prevención de replay
+- [ ] Definir captura de consentimiento y solicitud mínima necesaria para registro de visitas bajo Ley 8968
+- [ ] Probar vectores válidos, alterados, vencidos, revocados y document types no coincidentes
+- [ ] Comparar resultados con el Verificador IDC para Windows oficial, sin extraer secretos de terceros
+- [ ] Integrar solamente un resultado explícito de identidad verificada; no permitir que `status=0` o `encrypted_reply_authenticated=true` autoricen visitas
+- [ ] Ejecutar CI Windows y Linux, auditoría de dependencias y revisión de seguridad antes de fusionar a `main`
