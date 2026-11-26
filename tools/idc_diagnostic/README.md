@@ -152,3 +152,146 @@ Aunque todas las capacidades sean verdaderas, `idc_session_verified`,
 
 El diagnóstico anterior `--bluetooth-check` y las lecturas de cédulas
 físicas **siguen funcionando sin PyWinRT**.
+
+## Prueba presencial y consentida del enlace BLE (experimental)
+
+Esta prueba **no es un lector IDC**, no verifica identidad ni recupera atributos.
+Solo intenta localizar el **servicio específico anunciado por el QR** y abrir
+brevemente una conexión BLE, que se cierra automáticamente. No enumera nombres,
+MAC, servicios ajenos ni características GATT. No almacena el QR ni el UUID.
+
+Instalar **solo en una computadora de laboratorio**, no en producción:
+
+```powershell
+py -m pip install -r requirements-idc-ble-lab.txt
+```
+
+Cerrar la aplicación principal DMS, activar Bluetooth en Windows y tener la
+aplicación IDC oficial abierta con el QR dinámico de una persona que **haya
+autorizado expresamente la prueba**.
+
+```powershell
+py -m tools.idc_diagnostic --ble-link-check --port COM3 --consent
+```
+
+Sustituir `COM3` por el puerto real. La herramienta usa únicamente la
+modalidad COM para evitar que un escáner HID imprima el QR en la terminal.
+El QR se procesa en memoria y no se escribe en archivos o terminal.
+
+Interpretaciones principales:
+
+- `link_opened_then_closed`: conexión BLE breve exitosa, **no** sesión mdoc.
+- `service_not_found`: no se vio el UUID anunciado durante la ventana de
+  escaneo; puede deberse a que el teléfono no anunció aún el servicio,
+  restricciones de Windows o que el flujo utiliza otro modo BLE.
+- `phone_central_mode_only`: el QR requiere que el verificador actúe como
+  periférico; esta prueba no implementa ese modo.
+- `missing_peripheral_uuid`: falta el UUID esperado para este modo.
+- `bleak_not_installed` / `cbor2_not_installed`: falta paquete opcional.
+- `bluetooth_connection_error`: enlace fallido sin imprimir datos del móvil.
+
+En todos los casos `verified_identity=false`,
+`mdoc_session_established=false` e `idc_verification_available=false`.
+La integración con SDK autorizado por TSE/GET Group sigue siendo necesaria.
+
+**Alcance y privacidad:** la búsqueda BLE se limita al identificador de servicio
+obtenido del QR presentado por el titular; no se guardan identificadores ni
+resultados de otros dispositivos. Compartir solo el JSON técnico del resultado.
+
+## Cuando se recibe `service_not_found`
+
+`service_not_found` significa que en la ventana de escaneo no llegó un anuncio
+con el UUID temporal del QR. **No es prueba de fallo del radio ni de identidad
+inválida**. El QR puede anunciar un servicio que todavía no esté transmitiéndose.
+
+Realizar un intento controlado de laboratorio:
+
+1. Cerrar la aplicación principal que usa el puerto COM y dejar Bluetooth
+   encendido y autorizado en ambos dispositivos.
+2. Abrir en el teléfono la presentación de la IDC y generar un **QR vigente**,
+   con el teléfono desbloqueado y la aplicación en primer plano.
+3. Colocar el teléfono cerca del adaptador y ejecutar con el puerto real:
+
+```powershell
+py -m tools.idc_diagnostic --ble-link-check --port COMx --consent --ble-scan-seconds 30
+```
+
+No aumentar `--timeout` pensando que alarga el escaneo BLE: ese parámetro
+controla la **captura serial**, no la búsqueda Bluetooth. La ventana BLE se
+modifica exclusivamente mediante `--ble-scan-seconds` (3–30 segundos).
+
+Si vuelve a aparecer `service_not_found`, efectuar por separado una prueba
+con la **aplicación Verificador IDC oficial** en otro equipo compatible y con
+consentimiento. El éxito de la aplicación oficial puede ayudar a distinguir
+un problema de publicidad del teléfono de uno de interoperabilidad en Windows;
+**no autoriza extraer datos de la aplicación oficial**.
+
+**No** activar escaneos abiertos de todos los dispositivos, no publicar UUID,
+direcciones MAC ni el QR, y no emparejar manualmente el teléfono desde la
+configuración Bluetooth como sustituto de la negociación mdoc. Si el
+transporte sigue sin aparecer, la siguiente etapa requiere revisar el
+comportamiento real de la aplicación IDC y obtener el SDK autorizado.
+
+## Decisión tras dos resultados `service_not_found`
+
+El 20 de noviembre de 2026 se repitió la búsqueda dirigida de QR `mdoc:`
+con periférico BLE anunciado y servicio UUID presente, tanto con la ventana
+original como con ventana ampliada a 30 segundos: **no se encontró el servicio**.
+Windows declaró BLE LE + roles central/periférico compatibles. El fallo sigue
+sin causa demostrada.
+
+**No continuar elevando el timeout ni cambiar de hardware por ahora.**
+El TSE informa que el Verificador IDC oficial es gratuito para Windows,
+iOS y Android, y que el instalador Windows debe solicitarse a
+`Comercializacion@tse.go.cr` o al `2287-5885`:
+https://www.tse.go.cr/idc/
+
+La próxima prueba es comparar el funcionamiento del verificador oficial
+en un entorno autorizado. Registrar únicamente resultados cualitativos:
+**éxito/fallo, modo utilizado, offline/online, autorización solicitada**,
+sin fotografiar pantallas ni registrar QR, UUID o datos de la persona.
+Ver `docs/IDC_OFFLINE_BLE_READINESS.md`.
+
+## Base criptográfica ISO/IEC 18013-5 — etapa qa10
+
+Se agregó una preparación **local** de sesión mDoc para ensayar la estructura de
+seguridad del protocolo sin conectarse por Bluetooth ni exponer atributos:
+
+- Reconoce DeviceEngagement en forma de arreglo ISO 18013-5 y mapa candidato
+  (posible perfil ampliado; **no se presume conformidad del TSE**).
+- Exige cipher suite 1 y EDeviceKey tipo COSE EC2 sobre P-256, dentro de tag CBOR 24.
+- Genera clave efímera EReaderKey, arma SessionTranscript QR y deriva
+  **SKReader y SKDevice** mediante ECDH P-256 y HKDF SHA-256.
+- Construye DeviceRequest sintético con `docType` y `nameSpaces` suministrados
+  expresamente; no inventa los atributos ni el docType del TSE.
+- Nunca imprime llaves, UUID, transcript, QR, cédula, nombres ni certificados.
+
+En computadora de laboratorio, usando código de esta rama:
+
+```powershell
+py -m pip install -r requirements-idc-ble-lab.txt
+py -m pip install "cryptography==46.0.4"
+py -m tools.idc_diagnostic --mdoc-preflight --port COMx --consent
+```
+
+Usar el puerto COM real y el QR vigente del titular que haya autorizado la
+prueba. El reporte solo contiene estados booleanos y códigos categóricos.
+`local_crypto_preflight_passed_not_verified` demuestra **solo derivación
+local de claves**. No demuestra sesión BLE, emisor legítimo ni identidad.
+
+**La verificación completa sigue bloqueada** hasta integrar el transporte
+GATT, recibir `DeviceResponse`, validar `IssuerAuth`/firma COSE,
+certificados IACA de confianza, MSO/digests, DeviceAuth sobre la misma sesión
+y la vigencia. Hasta entonces, NO rellenar el formulario de visitantes.
+
+### Cifrado del mensaje de sesión (sintético, no conectado)
+
+El núcleo incorpora `SessionCipherState` con AES-256-GCM, nonce de 12 bytes
+(identificador de dirección de 8 bytes y contador big-endian de 4 bytes),
+contadores independientes por dirección y rechazo de mensajes alterados o
+reproducidos. Puede ensamblar una estructura `SessionEstablishment` con
+`eReaderKey` y `data` cifrados para pruebas sintéticas **en memoria**.
+
+No transmite aún la estructura al teléfono y no verifica un `DeviceResponse`.
+Un mensaje descifrado NO equivale a una identidad autenticada: faltan
+`IssuerAuth`, MSO, certificados y la vinculación `DeviceAuth`.

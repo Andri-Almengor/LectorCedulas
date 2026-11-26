@@ -43,3 +43,31 @@
 5. Verificación local no equivale a consulta registral actualizada ni prueba de revocación online.
 6. Probar BLE, Windows, lectores COM/HID y permiso institucional antes de prometer hardware.
 7. La instalación final y su rollback requieren copia de configuración/licencia del cliente.
+
+## Implementación ISO/IEC 18013-5 — primer componente qa10 (noviembre 2026)
+
+- Parser estricto para datos de `DeviceEngagement` y clave pública P-256
+  protegida en CBOR tag 24 / COSE EC2, sin registrar su contenido.
+- Generador de EReaderKey efímera, SessionTranscript QR, ECDH y HKDF de
+  SKReader/SKDevice para confirmar derivación local de claves.
+- Generador DeviceRequest de prueba con mínima divulgación, nombres de
+  documento/atributos explícitos y retención desactivada.
+- Pruebas solo con credenciales sintéticas; ningún dato de una IDC real
+  fue usado para generar fixtures.
+- **No** hay intercambio GATT mDoc ni validación de firma, MSO, DeviceAuth o
+  cadena IACA. No se ha verificado ninguna identidad.
+- La respuesta del TSE cita ISO/IEC 18013-5; la forma de mapa CBOR observada
+  debe verificarse contra el perfil efectivamente utilizado por Costa Rica,
+  sin inferir que ISO 18013-5 cubre todos sus detalles específicos.
+- Conservar ruta de lectura física y bloqueo del autollenado IDC.
+
+### Subetapa de sesión cifrada
+
+- Cifrado AES-256-GCM con IV por dirección, contadores 1..2^32-1,
+  autenticación AEAD, rechazo de replay y contadores inválidos.
+- Construcción de un `SessionEstablishment` sintético con
+  `eReaderKey` y `DeviceRequest` cifrada; solo en memoria.
+- Pruebas de cifrado/descifrado, mensajes alterados, retransmisión
+  y contador agotado.
+- **No se ha transmitido** aún por GATT; la recepción/validación del
+  `DeviceResponse` y certificados de confianza está pendiente.

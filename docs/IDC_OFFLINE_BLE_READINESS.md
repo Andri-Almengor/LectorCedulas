@@ -132,3 +132,75 @@ El QR observado anuncia BLE/NFC, pero el rol exacto de la sesión debe
 deducirse de las opciones completas del engagement con un motor compatible.
 Si el adaptador soporta rol central, solo se supera la prueba de hardware:
 NO confirma que la IDC o el SDK establezcan sesión correctamente.
+
+## Prueba posterior: enlace BLE real a servicio anunciado en QR
+
+Esta operación requiere consentimiento expreso del titular de la IDC,
+Bluetooth activado, lector COM y los paquetes opcionales incluidos en
+`requirements-idc-ble-lab.txt`. Ejecutar únicamente en un equipo de
+laboratorio, no en el puesto del cliente.
+
+```powershell
+py -m pip install -r requirements-idc-ble-lab.txt
+py -m tools.idc_diagnostic --ble-link-check --port COM3 --consent
+```
+
+La utilidad solo intenta conectar con el servicio que anuncia ese QR
+para el modo en que el **teléfono actúa como periférico BLE**.
+Si el QR anuncia solo teléfono central, la prueba se detiene con un
+mensaje categórico y no intenta cambiar el rol de Windows.
+
+No se realiza negociación mdoc, no se envían solicitudes de atributos,
+no se extraen cédulas, no se confía en firmas y no se escribe el formulario.
+Un resultado de enlace BLE exitoso deja pendientes autenticación y SDK.
+
+## Incidencia documentada — servicio del QR no observado
+
+Después de capturar QR `mdoc:` con modo periférico y UUID presentes,
+la primera búsqueda BLE en Windows devolvió `service_not_found`.
+El adaptador Windows declaró soporte LE y roles central/periférico, pero
+**no se observó publicidad BLE del servicio temporal durante 18 segundos**.
+
+Primero ampliar la **ventana dirigida**, sin buscar otros dispositivos:
+```powershell
+py -m tools.idc_diagnostic --ble-link-check --port COMx --consent --ble-scan-seconds 30
+```
+Usar el puerto COM real y un QR recién presentado. Si vuelve a fallar,
+comparar por separado con el verificador oficial (previo consentimiento).
+Un resultado fallido aquí no demuestra que la IDC no se pueda verificar
+offline, y no obliga a instalar hardware nuevo en clientes.
+
+## Segunda prueba de campo (2026-11-20) — mismo bloqueo pese a 30 segundos
+
+Segunda lectura consentida: mapa CBOR mdoc con modo BLE periférico del titular,
+UUID de servicio presente; adaptador Windows compatible con LE/central/periférico;
+sin conexión, con resultado `service_not_found` tras ampliar la ventana.
+
+**Decisión:** no continuar ampliando tiempos, iniciar barridos no filtrados
+ni suponer que falta hardware. La causa no está identificada. Puede depender
+de cuándo la aplicación IDC anuncie realmente el UUID, de requisitos del
+verificador, de compatibilidad de anuncios con Windows o de opciones del perfil.
+
+### Control de referencia oficial recomendado
+
+El TSE confirma que existen verificadores IDC gratuitos para
+**Windows, Android e iOS** (https://www.tse.go.cr/idc/). El instalador
+oficial Windows se solicita a **Comercializacion@tse.go.cr** o
+**2287-5885**.
+
+1. Obtener el instalador oficial Windows mediante el TSE; no usar copias de terceros.
+2. En laboratorio y con consentimiento, probar un QR vigente en el Verificador
+   IDC oficial. Registrar solamente si la prueba funciona, si se usa BLE/NFC,
+   si exige conexión a Internet y si muestra una solicitud de autorización.
+3. Si funciona el oficial en Windows pero falla nuestro enlace dirigido,
+   investigar diferencias de secuencia de activación, publicidad BLE,
+   permisos y tratamiento de anuncios por el stack WinRT.
+4. Si funciona solo en otro móvil, no concluir aún que falla la IDC; revisar
+   limitaciones del verificador Windows y del equipo.
+5. Si ningún verificador funciona, revisar instrucciones del TSE y permisos
+   del teléfono. No atribuir el fallo a BLE del equipo sin esa evidencia.
+
+El aplicativo oficial es una referencia de **verificación**, no una API
+documentada: nunca leer pantallas ni extraer atributos automáticamente.
+Para completar el formulario DMS se necesita una interfaz autorizada,
+documentación de confianza y consentimiento del titular.
