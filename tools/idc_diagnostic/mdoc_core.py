@@ -230,3 +230,76 @@ def preflight_mdoc_crypto(raw_qr: bytes, *, consent: bool) -> dict[str, object]:
         report["session_transcript_prepared"] = True
         report["status"] = "local_crypto_preflight_passed_not_verified"
     return report
+
+
+@dataclass(repr=False)
+class SessionCipherState:
+    """AES-256-GCM con contadores separados por dirección y rechazo de replay.
+
+    Cada instancia debe pertenecer a UNA sola sesión de lector. No serializar.
+    """
+    material: ReaderSessionMaterial = field(repr=False)
+    reader_counter: int = 0
+    device_counter: int = 0
+    establishment_sent: bool = False
+
+    def __repr__(self) -> str:
+        return "<SessionCipherState (secret material redacted)>"
+
+    @staticmethod
+    def _iv(direction: int, counter: int) -> bytes:
+        if direction not in (0, 1) or not 1 <= counter <= 0xFFFFFFFF:
+            raise MdocProtocolError("invalid_message_counter")
+        # ISO/IEC 18013-5: 8-byte direction, 4-byte unsigned counter.
+        return direction.to_bytes(8, "big") + counter.to_bytes(4, "big")
+
+    def encrypt_reader_message(self, plaintext: bytes) -> bytes:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        if not isinstance(plaintext, bytes) or not 1 <= len(plaintext) <= MAX_SCAN_BYTES:
+            raise MdocProtocolError("invalid_request_payload")
+        if self.reader_counter >= 0xFFFFFFFF:
+            raise MdocProtocolError("reader_counter_exhausted")
+        next_counter = self.reader_counter + 1
+        encrypted = AESGCM(self.material.sk_reader).encrypt(
+            self._iv(0, next_counter), plaintext, None
+        )
+        self.reader_counter = next_counter
+        return encrypted
+
+    def decrypt_device_message(self, encrypted: bytes) -> bytes:
+        from cryptography.exceptions import InvalidTag
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        if not isinstance(encrypted, bytes) or not 17 <= len(encrypted) <= MAX_SCAN_BYTES + 16:
+            raise MdocProtocolError("invalid_device_message")
+        if self.device_counter >= 0xFFFFFFFF:
+            raise MdocProtocolError("device_counter_exhausted")
+        next_counter = self.device_counter + 1
+        try:
+            plaintext = AESGCM(self.material.sk_device).decrypt(
+                self._iv(1, next_counter), encrypted, None
+            )
+        except InvalidTag as exc:
+            # Abarca mensaje alterado, clave incorrecta o replay. No divulgar.
+            raise MdocProtocolError("session_authentication_failed") from exc
+        self.device_counter = next_counter
+        return plaintext
+
+
+def build_session_establishment(
+    material: ReaderSessionMaterial,
+    cipher: SessionCipherState,
+    device_request: bytes,
+) -> bytes:
+    """Prepara SessionEstablishment cifrado. NO lo envía por BLE ni verifica IDC."""
+    import cbor2
+
+    if cipher.material is not material or cipher.establishment_sent:
+        raise MdocProtocolError("establishment_not_allowed")
+    ciphertext = cipher.encrypt_reader_message(device_request)
+    cipher.establishment_sent = True
+    return cbor2.dumps({
+        "eReaderKey": cbor2.CBORTag(24, material.reader_cose_key),
+        "data": ciphertext,
+    })
