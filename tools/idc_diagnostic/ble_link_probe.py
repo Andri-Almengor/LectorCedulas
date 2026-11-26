@@ -183,5 +183,6 @@ def probe_mdoc_ble_link(
     else:
         report["link_status"] = "link_opened_then_closed"
         report["ble_link_established"] = True
-        report["gatt_link_tested"] = True
+        # El diagnóstico de enlace solo abrió BLE. No inspeccionó GATT.
+        report["gatt_link_tested"] = False
     return report

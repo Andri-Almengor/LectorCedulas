@@ -43,6 +43,7 @@ def test_successful_link_never_means_verified_idc():
     assert result["ble_service_uuid_present"] is True
     assert result["link_status"] == "link_opened_then_closed"
     assert result["ble_link_established"] is True
+    assert result["gatt_link_tested"] is False  # no discovery in link-only check
     assert result["mdoc_session_established"] is False
     assert result["verified_identity"] is False
     assert result["idc_verification_available"] is False
