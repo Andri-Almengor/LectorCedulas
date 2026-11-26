@@ -155,7 +155,8 @@ def test_cli_real_scan_report_never_exposes_qr(monkeypatch, capsys):
     assert report["verified_identity"] is False
     assert qr.decode() not in output
     assert "sk_reader" not in output
-    assert "session_transcript" not in output
+    assert report["session_transcript_prepared"] is True
+    assert "session_transcript_bytes" not in output
 
 
 def test_cli_requires_explicit_consent():
