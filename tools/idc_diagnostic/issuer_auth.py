@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import io
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -176,7 +177,7 @@ def verify_issuer_auth_signature(
         if not isinstance(sign1, (list, tuple)) or len(sign1) != 4:
             raise IssuerAuthError("invalid_cose_sign1")
         protected_raw, unprotected, payload, signature = sign1
-        if not isinstance(protected_raw, bytes) or not isinstance(unprotected, dict):
+        if not isinstance(protected_raw, bytes) or not isinstance(unprotected, Mapping):
             raise IssuerAuthError("invalid_cose_sign1")
         if not isinstance(payload, bytes) or not isinstance(signature, bytes) or len(signature) != 64:
             raise IssuerAuthError("invalid_cose_sign1")
@@ -186,7 +187,7 @@ def verify_issuer_auth_signature(
         x5chain = unprotected.get(33)
         if isinstance(x5chain, bytes):
             der_signer = x5chain
-        elif isinstance(x5chain, list) and len(x5chain) == 1 and isinstance(x5chain[0], bytes):
+        elif isinstance(x5chain, (list, tuple)) and len(x5chain) == 1 and isinstance(x5chain[0], bytes):
             der_signer = x5chain[0]
         else:
             raise IssuerAuthError("unsupported_certificate_chain")
