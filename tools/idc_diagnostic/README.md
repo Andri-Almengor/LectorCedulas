@@ -283,3 +283,15 @@ local de claves**. No demuestra sesión BLE, emisor legítimo ni identidad.
 GATT, recibir `DeviceResponse`, validar `IssuerAuth`/firma COSE,
 certificados IACA de confianza, MSO/digests, DeviceAuth sobre la misma sesión
 y la vigencia. Hasta entonces, NO rellenar el formulario de visitantes.
+
+### Cifrado del mensaje de sesión (sintético, no conectado)
+
+El núcleo incorpora `SessionCipherState` con AES-256-GCM, nonce de 12 bytes
+(identificador de dirección de 8 bytes y contador big-endian de 4 bytes),
+contadores independientes por dirección y rechazo de mensajes alterados o
+reproducidos. Puede ensamblar una estructura `SessionEstablishment` con
+`eReaderKey` y `data` cifrados para pruebas sintéticas **en memoria**.
+
+No transmite aún la estructura al teléfono y no verifica un `DeviceResponse`.
+Un mensaje descifrado NO equivale a una identidad autenticada: faltan
+`IssuerAuth`, MSO, certificados y la vinculación `DeviceAuth`.
