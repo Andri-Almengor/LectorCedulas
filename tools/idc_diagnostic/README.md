@@ -400,3 +400,36 @@ Resultados posibles:
 
 El escaneo y la inspección de GATT no proporcionan información personal
 ni validan credenciales.
+
+## Etapa qa11 — señalización State BLE con consentimiento reforzado
+
+La última prueba de campo confirmó `gatt_profile_discovered_not_session_started`
+con `State`, `Client2Server` y `Server2Client` presentes y propiedades válidas.
+
+Siguiente prueba **activa pero limitada**: el lector se conecta al UUID
+efímero extraído del QR, se suscribe a las notificaciones `State` y
+`Server2Client`, envía `State=Start (0x01)`, observa brevemente cualquier
+notificación de estado **sin almacenar contenido**, envía `State=End (0x02)`,
+anula las suscripciones y desconecta. Nunca transmite un `DeviceRequest`,
+ni escribe en `Client2Server`, ni reensambla respuestas del teléfono.
+
+Esto requiere dos permisos explícitos: `--consent` (titular presente) y
+`--allow-gatt-write` (permiso para enviar señales de sesión GATT). La
+operación puede hacer que el teléfono cierre o reinicie la presentación
+IDC; para otra prueba debe generarse un QR nuevo.
+
+```cmd
+py -m tools.idc_diagnostic --ble-state-check --port COM5 --consent --allow-gatt-write --ble-scan-seconds 30
+```
+
+`state_start_and_end_sent_no_document_request` significa **solo**
+que ambos bytes de control se enviaron desde Windows; no prueba que el
+teléfono los procesara, que la sesión mDoc se estableciera o que la
+identidad fuese auténtica. `peer_end_observed` registra únicamente
+si el teléfono notificó el byte `End`. Los reportes no incluyen QR,
+nombres, UUID, MAC, certificados, ni contenido GATT.
+
+Para llegar a una verificación de identidad faltan el envío de
+`SessionEstablishment` con una solicitud de atributos explícitamente
+autorizada, recepción de `SessionData`, validación de `IssuerAuth`,
+todos los digests, `DeviceAuth` y confianza del emisor.
