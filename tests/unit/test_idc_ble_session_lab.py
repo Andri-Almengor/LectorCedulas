@@ -306,3 +306,56 @@ def test_cli_synthetic_session_does_not_print_qr(monkeypatch, capsys):
     printed = capsys.readouterr().out
     assert "no_response_to_synthetic_document_request" in printed
     assert "mdoc:" not in printed
+
+
+async def _synthetic_document_error(_uuid, _duration, _packet, _cipher):
+    # Respuesta fiel al patrón observado en laboratorio: status general 0,
+    # documentErrors no vacío y ausencia de documentos.
+    return {
+        **_flags(),
+        "device_found": True,
+        "ble_connected": True,
+        "gatt_service_found": True,
+        "gatt_properties_match": True,
+        "notifications_subscribed": True,
+        "state_start_sent": True,
+        "session_establishment_sent": True,
+        "encrypted_request_transmitted": True,
+        "response_fragment_seen": True,
+        "session_data_received": True,
+        "encrypted_reply_authenticated": True,
+        "device_response_cbor_present": True,
+        "response_status_code": 0,
+        "response_status_category": "ok",
+        "response_document_count_category": "absent",
+        "response_document_errors_present": True,
+        "state_end_sent": True,
+        "notifications_stopped": True,
+    }
+
+
+def test_authenticated_synthetic_document_error_does_not_look_like_verified_idc():
+    report = probe_synthetic_mdoc_transport(
+        _valid_qr(), consent=True, allow_synthetic_exchange=True,
+        exchange=_synthetic_document_error,
+    )
+    assert report["synthetic_document_unavailable_observed"] is True
+    assert report["status"] == "synthetic_document_unavailable_not_verified"
+    assert report["encrypted_reply_authenticated"] is True
+    assert report["response_status_code"] == 0
+    assert report["response_document_errors_present"] is True
+    assert report["response_document_count_category"] == "absent"
+    assert report["issuer_signature_verified"] is False
+    assert report["device_auth_verified"] is False
+    assert report["iaca_trust_anchor_validated"] is False
+    assert report["verified_identity"] is False
+    assert report["idc_verification_available"] is False
+
+
+def test_encrypted_reply_without_specific_document_error_stays_generic():
+    report = probe_synthetic_mdoc_transport(
+        _valid_qr(), consent=True, allow_synthetic_exchange=True,
+        exchange=_successful_mock,
+    )
+    assert report["synthetic_document_unavailable_observed"] is False
+    assert report["status"] == "encrypted_reply_authenticated_not_identity"
