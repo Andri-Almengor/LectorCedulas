@@ -19,10 +19,18 @@ from .mdoc_core import (
 DOC_TYPE = "org.iso.23220.photoid.1"
 NAMESPACE = "org.iso.23220.1"
 ELEMENT = "issuing_country"
+_MDL_DOC_TYPE = "org.iso.18013.5.1.mDL"
+_MDL_NAMESPACE = "org.iso.18013.5.1"
 
 
-def candidate_request() -> bytes:
-    return build_device_request(doc_type=DOC_TYPE, requested_namespaces={NAMESPACE: (ELEMENT,)})
+def candidate_request(*, profile: str = "photoid") -> bytes:
+    if profile == "photoid":
+        doc_type, namespace = DOC_TYPE, NAMESPACE
+    elif profile == "mdl":
+        doc_type, namespace = _MDL_DOC_TYPE, _MDL_NAMESPACE
+    else:
+        raise ValueError("unsupported_public_profile")
+    return build_device_request(doc_type=doc_type, requested_namespaces={namespace: (ELEMENT,)})
 
 
 def _report():
@@ -45,11 +53,20 @@ def _report():
     }
 
 
-def probe_candidate(raw_qr: bytes, *, consent: bool, allow_candidate: bool, scan_seconds: float = 30):
+def probe_candidate(
+    raw_qr: bytes, *, consent: bool, allow_candidate: bool,
+    scan_seconds: float = 30, profile: str = "photoid",
+):
     report = _report()
     if not consent or not allow_candidate:
         return report
     report["consent_confirmed"] = True
+    if profile not in ("photoid", "mdl"):
+        report["status"] = "unsupported_public_profile"
+        return report
+    report["public_profile_tested"] = profile
+    if profile == "mdl":
+        report["purpose"] = "public_mdl_candidate_probe_only"
     if not 3 <= scan_seconds <= 30:
         report["status"] = "invalid_timeout"
         return report
@@ -60,7 +77,7 @@ def probe_candidate(raw_qr: bytes, *, consent: bool, allow_candidate: bool, scan
             return report
         material = prepare_reader_session(raw_qr)
         cipher = SessionCipherState(material)
-        packet = build_session_establishment(material, cipher, candidate_request())
+        packet = build_session_establishment(material, cipher, candidate_request(profile=profile))
         result = asyncio.run(asyncio.wait_for(
             _ble_exchange(service_uuid, scan_seconds, packet, cipher),
             timeout=scan_seconds + 37,
@@ -98,18 +115,23 @@ def probe_candidate(raw_qr: bytes, *, consent: bool, allow_candidate: bool, scan
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Hipótesis ISO Photo ID: solicita solo país emisor.")
+    parser = argparse.ArgumentParser(description="Comparación de perfiles públicos ISO: solicita solo país emisor.")
     parser.add_argument("--port", required=True)
     parser.add_argument("--consent", action="store_true")
-    parser.add_argument("--allow-photoid-candidate", action="store_true")
+    permissions = parser.add_mutually_exclusive_group(required=True)
+    permissions.add_argument("--allow-photoid-candidate", action="store_true")
+    permissions.add_argument("--allow-mdl-candidate", action="store_true")
     parser.add_argument("--ble-scan-seconds", type=float, default=30)
     args = parser.parse_args(argv)
-    if not args.consent or not args.allow_photoid_candidate or not 3 <= args.ble_scan_seconds <= 30:
+    if not args.consent or not 3 <= args.ble_scan_seconds <= 30:
         parser.error("Requiere consentimiento, permiso explícito y tiempo BLE entre 3 y 30 segundos.")
     try:
         print("Escanee su QR nuevo. Autorice solo país emisor en el teléfono; cancele si pide otros datos.")
         raw = capture_serial(args.port, baudrate=9600, timeout_seconds=25)
-        report = probe_candidate(raw, consent=True, allow_candidate=True, scan_seconds=args.ble_scan_seconds)
+        report = probe_candidate(
+            raw, consent=True, allow_candidate=True, scan_seconds=args.ble_scan_seconds,
+            profile="mdl" if args.allow_mdl_candidate else "photoid",
+        )
     except Exception:
         report = _report()
         report["status"] = "capture_failed"
