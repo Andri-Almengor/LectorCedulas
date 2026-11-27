@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from pathlib import Path
 
 from .ble_link_probe import _get_transport_options, _load_cbor
 from .ble_session_lab import _ble_exchange
@@ -15,6 +16,8 @@ from .capture import capture_serial
 from .mdl_response_shape import empty_mdl_shape
 from .device_mac_precheck import empty_mac_precheck
 from .issuer_consistency import empty_issuer_consistency
+from .pinned_issuer import MAX_CERT, check_anchor, empty_pinned_precheck
+from .profile_preflight import _read_bounded
 from .mdoc_core import (
     SessionCipherState, build_device_request, build_session_establishment, prepare_reader_session,
 )
@@ -58,7 +61,7 @@ def _report():
 
 def probe_candidate(
     raw_qr: bytes, *, consent: bool, allow_candidate: bool,
-    scan_seconds: float = 30, profile: str = "photoid",
+    scan_seconds: float = 30, profile: str = "photoid", anchor=None,
 ):
     report = _report()
     if not consent or not allow_candidate:
@@ -73,6 +76,10 @@ def probe_candidate(
         report.update(empty_mdl_shape())
         report.update(empty_mac_precheck())
         report.update(empty_issuer_consistency())
+        report.update(empty_pinned_precheck())
+    if anchor is not None and (profile != "mdl" or not check_anchor(*anchor)):
+        report["status"] = "invalid_or_unusable_pinned_anchor"
+        return report
     if not 3 <= scan_seconds <= 30:
         report["status"] = "invalid_timeout"
         return report
@@ -85,7 +92,9 @@ def probe_candidate(
         cipher = SessionCipherState(material)
         packet = build_session_establishment(material, cipher, candidate_request(profile=profile))
         result = asyncio.run(asyncio.wait_for(
-            _ble_exchange(service_uuid, scan_seconds, packet, cipher),
+            _ble_exchange(service_uuid, scan_seconds, packet, cipher, **(
+                {"anchor": anchor} if anchor is not None else {}
+            )),
             timeout=scan_seconds + 37,
         ))
         if not isinstance(result, dict):
@@ -96,8 +105,10 @@ def probe_candidate(
             return report
         report["encrypted_reply_authenticated"] = True
         if profile == "mdl":
-            for field in (*empty_mdl_shape(), *empty_mac_precheck(), *empty_issuer_consistency()):
-                report[field] = result.get(field) is True
+            for field in (*empty_mdl_shape(), *empty_mac_precheck(), *empty_issuer_consistency(), *empty_pinned_precheck()):
+                report[field] = result.get(field) is True and (
+                    field not in empty_pinned_precheck() or anchor is not None
+                )
         count = result.get("response_document_count_category")
         if count in ("unavailable", "absent", "none", "one", "multiple", "invalid"):
             report["response_document_count_category"] = count
@@ -131,15 +142,29 @@ def main(argv=None):
     permissions.add_argument("--allow-photoid-candidate", action="store_true")
     permissions.add_argument("--allow-mdl-candidate", action="store_true")
     parser.add_argument("--ble-scan-seconds", type=float, default=30)
+    parser.add_argument("--anchor-der", type=Path)
+    parser.add_argument("--anchor-pin-file", type=Path)
     args = parser.parse_args(argv)
     if not args.consent or not 3 <= args.ble_scan_seconds <= 30:
         parser.error("Requiere consentimiento, permiso explícito y tiempo BLE entre 3 y 30 segundos.")
+    anchor = None
+    if args.anchor_der is not None or args.anchor_pin_file is not None:
+        if not args.allow_mdl_candidate or args.anchor_der is None or args.anchor_pin_file is None:
+            parser.error("Use ambos archivos de confianza con el candidato mDL.")
+        try:
+            der = _read_bounded(args.anchor_der, MAX_CERT)
+            pin = _read_bounded(args.anchor_pin_file, 128).decode("ascii").strip().lower()
+            if not check_anchor(der, pin):
+                raise ValueError("invalid_anchor")
+            anchor = (der, pin)
+        except (OSError, ValueError):
+            parser.error("Ancla local o huella independiente no válida. No se inició BLE.")
     try:
         print("Escanee su QR nuevo. Autorice solo país emisor en el teléfono; cancele si pide otros datos.")
         raw = capture_serial(args.port, baudrate=9600, timeout_seconds=25)
         report = probe_candidate(
             raw, consent=True, allow_candidate=True, scan_seconds=args.ble_scan_seconds,
-            profile="mdl" if args.allow_mdl_candidate else "photoid",
+            profile="mdl" if args.allow_mdl_candidate else "photoid", anchor=anchor,
         )
     except Exception:
         report = _report()
