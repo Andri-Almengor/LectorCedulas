@@ -14,6 +14,7 @@ from .ble_session_lab import _ble_exchange
 from .capture import capture_serial
 from .mdl_response_shape import empty_mdl_shape
 from .device_mac_precheck import empty_mac_precheck
+from .issuer_consistency import empty_issuer_consistency
 from .mdoc_core import (
     SessionCipherState, build_device_request, build_session_establishment, prepare_reader_session,
 )
@@ -71,6 +72,7 @@ def probe_candidate(
         report["purpose"] = "public_mdl_candidate_probe_only"
         report.update(empty_mdl_shape())
         report.update(empty_mac_precheck())
+        report.update(empty_issuer_consistency())
     if not 3 <= scan_seconds <= 30:
         report["status"] = "invalid_timeout"
         return report
@@ -94,7 +96,7 @@ def probe_candidate(
             return report
         report["encrypted_reply_authenticated"] = True
         if profile == "mdl":
-            for field in (*empty_mdl_shape(), *empty_mac_precheck()):
+            for field in (*empty_mdl_shape(), *empty_mac_precheck(), *empty_issuer_consistency()):
                 report[field] = result.get(field) is True
         count = result.get("response_document_count_category")
         if count in ("unavailable", "absent", "none", "one", "multiple", "invalid"):

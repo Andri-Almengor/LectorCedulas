@@ -29,6 +29,7 @@ from .gatt_codec import (
 from .device_response_shape import classify_device_response_structure
 from .mdl_response_shape import inspect_mdl_shape
 from .device_mac_precheck import inspect_mac_consistency
+from .issuer_consistency import inspect_issuer_consistency
 from .mdoc_core import (
     MdocProtocolError,
     SessionCipherState,
@@ -145,6 +146,7 @@ def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState) -> dict[st
         result["response_document_error_category"] = classify_document_error_codes(parsed)
         result.update(inspect_mdl_shape(parsed))
         result.update(inspect_mac_consistency(parsed, cipher.material))
+        result.update(inspect_issuer_consistency(parsed))
         result["device_response_cbor_present"] = (
             categorization["response_structure_acceptable"] is True
         )
