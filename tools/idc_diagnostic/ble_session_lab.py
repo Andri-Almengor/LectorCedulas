@@ -30,6 +30,7 @@ from .device_response_shape import classify_device_response_structure
 from .mdl_response_shape import inspect_mdl_shape
 from .device_mac_precheck import inspect_mac_consistency
 from .issuer_consistency import inspect_issuer_consistency
+from .pinned_issuer import inspect_pinned_issuer
 from .mdoc_core import (
     MdocProtocolError,
     SessionCipherState,
@@ -97,7 +98,7 @@ def classify_document_error_codes(value: Any) -> str:
     return "nonzero_document_error"
 
 
-def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState) -> dict[str, bool]:
+def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState, *, anchor=None) -> dict[str, bool]:
     """Inspección extremadamente limitada de forma. No extrae ni retorna datos."""
     result = {
         "session_data_received": False,
@@ -147,6 +148,8 @@ def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState) -> dict[st
         result.update(inspect_mdl_shape(parsed))
         result.update(inspect_mac_consistency(parsed, cipher.material))
         result.update(inspect_issuer_consistency(parsed))
+        if anchor is not None:
+            result.update(inspect_pinned_issuer(parsed, *anchor))
         result["device_response_cbor_present"] = (
             categorization["response_structure_acceptable"] is True
         )
@@ -155,7 +158,7 @@ def _inspect_reply(envelope_bytes: bytes, cipher: SessionCipherState) -> dict[st
 
 async def _ble_exchange(
     service_uuid: UUID, scan_seconds: float, packet: bytes,
-    cipher: SessionCipherState,
+    cipher: SessionCipherState, *, anchor=None,
 ) -> dict[str, bool]:
     from bleak import BleakClient, BleakScanner
 
@@ -257,7 +260,7 @@ async def _ble_exchange(
                     result["response_timeout"] = True
 
             if incoming:
-                inspection = _inspect_reply(incoming.pop(), cipher)
+                inspection = _inspect_reply(incoming.pop(), cipher, anchor=anchor)
                 result.update(inspection)
         finally:
             if result["state_start_sent"] and client.is_connected:
